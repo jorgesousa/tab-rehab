@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tab Rehab · A Chrome extension for chronic tab hoarders</title>
+<meta name="description" content="Tab Rehab is a free Chrome extension that helps you close tabs without losing anything: one tab at a time, with an undo for everything.">
+<meta property="og:title" content="Tab Rehab">
+<meta property="og:description" content="Hi. I have 347 tabs open. A free Chrome extension for chronic tab hoarders.">
+<meta property="og:image" content="teaser-poster.jpg">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one airy column that tells the story in order: problem → why → try it → features → teaser → privacy → install → next. Hairlines instead of boxes. */
+:root {
+  --bg: #fcfcfe;
+  --raised: #ffffff;
+  --tint: #f3f2f9;
+  --ink: #22202f;
+  --muted: #676480;
+  --faint: #8e8ba3;
+  --line: #ebeaf2;
+  --accent: #5b4cdb;
+  --accent-ink: #4636c4;
+  --accent-soft: #efeefd;
+  --on-accent: #ffffff;
+  --ok: #1f8a4c; --ok-soft: #e7f6ed; --ok-ink: #17713d;
+  --warn: #b86e00; --warn-soft: #fff5e3; --warn-ink: #8a5200;
+  --bad: #c5221f; --bad-soft: #fdebea; --bad-ink: #b3261e;
+  --chrome: #efeef5;
+  --sticker: #ffd35c;
+  --display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  --body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111018; --raised: #18171f; --tint: #1d1c27; --ink: #ecebf4; --muted: #a9a6bd; --faint: #7f7b96; --line: #26243282;
+  --accent: #9a8fff; --accent-ink: #b9b1ff; --accent-soft: #24213f; --on-accent: #111018;
+  --ok: #4fc483; --ok-soft: #15291f; --ok-ink: #84dcab;
+  --warn: #f0aa3c; --warn-soft: #2f2410; --warn-ink: #f5c477;
+  --bad: #ff6b66; --bad-soft: #321819; --bad-ink: #ff9d98;
+  --chrome: #0c0b12;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111018; --raised: #18171f; --tint: #1d1c27; --ink: #ecebf4; --muted: #a9a6bd; --faint: #7f7b96; --line: #26243282;
+  --accent: #9a8fff; --accent-ink: #b9b1ff; --accent-soft: #24213f; --on-accent: #111018;
+  --ok: #4fc483; --ok-soft: #15291f; --ok-ink: #84dcab;
+  --warn: #f0aa3c; --warn-soft: #2f2410; --warn-ink: #f5c477;
+  --bad: #ff6b66; --bad-soft: #321819; --bad-ink: #ff9d98;
+  --chrome: #0c0b12;
+  color-scheme: dark }
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--ink); font: 400 17px/1.6 var(--body); overflow-x: hidden; transition: background-color .3s, color .3s; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+a { color: var(--accent-ink); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: -0.025em; text-wrap: balance; margin: 0; }
+h2 { font-size: clamp(30px, 3.6vw, 42px); line-height: 1.1; }
+.label { font: 500 12.5px var(--mono); letter-spacing: .04em; color: var(--accent-ink); display: flex; gap: 10px; align-items: center; }
+.label::before { content: ""; width: 18px; height: 1px; background: currentColor; }
+.muted { color: var(--muted); }
+kbd { font: 500 12.5px var(--mono); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; background: var(--raised); color: var(--ink); }
+code { font: 400 0.88em var(--mono); color: var(--accent-ink); background: var(--accent-soft); padding: 2px 6px; border-radius: 5px; }
+
+/* header */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+.top .wrap { display: flex; align-items: center; gap: 22px; padding-block: 12px; }
+.brand { display: flex; align-items: center; gap: 18px; font-family: var(--display); font-weight: 600; font-size: 19px; color: var(--ink); text-decoration: none; }
+.mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; position: relative; flex: none; }
+.mark svg { width: 17px; height: 17px; }
+.badge { position: absolute; right: -11px; bottom: -6px; min-width: 20px; text-align: center; color: #fff; font: 600 10.5px/1 var(--body); padding: 3px 4px; border-radius: 5px; box-shadow: 0 0 0 2px var(--bg); font-variant-numeric: tabular-nums; background: var(--bad); transition: background-color .3s; }
+.badge.amber { background: var(--warn); } .badge.green { background: var(--ok); }
+.badge.bump { animation: bump .35s ease-out; }
+@keyframes bump { 40% { transform: scale(1.3); } }
+.top nav { margin-left: auto; display: flex; gap: 26px; font-size: 15px; }
+.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a:hover { color: var(--ink); }
+.theme { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; flex: none; }
+.theme svg { width: 18px; height: 18px; }
+.theme .sun { display: none; }
+.is-dark .theme .sun { display: block; } .is-dark .theme .moon { display: none; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; font: 600 15.5px var(--body); border-radius: 10px; padding: 0 18px; min-height: 48px; cursor: pointer; text-decoration: none; border: 1px solid transparent; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-line { border-color: var(--line); color: var(--ink); background: transparent; }
+.btn-line:hover { border-color: var(--accent); }
+.btn svg { width: 18px; height: 18px; }
+.btn-small { min-height: 40px; font-size: 14px; padding: 0 14px; }
+.status { font-size: 14px; color: var(--muted); min-height: 1.4em; margin-top: 10px; }
+.status.ok { color: var(--ok-ink); } .status.err { color: var(--bad-ink); }
+
+section { padding-block: 88px; border-top: 1px solid var(--line); }
+.head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 56px; align-items: end; margin-bottom: 44px; }
+.head p { margin: 0; color: var(--muted); max-width: 46ch; }
+.head h2 { margin-top: 14px; }
+
+/* 1 · hero */
+.hero { padding-block: 72px 88px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; }
+.hero h1 { font-size: clamp(46px, 6.4vw, 82px); line-height: 1.02; font-weight: 800; letter-spacing: -0.045em; margin-block: 30px 22px; }
+.swap { position: relative; display: inline-block; }
+#h347 { position: relative; transition: color .35s; }
+#h347::after { content: ""; position: absolute; left: -4%; right: -4%; top: 54%; height: .085em; border-radius: 99px; background: var(--ink); transform: scaleX(0) rotate(-4deg); transform-origin: left center; transition: transform .35s ease; }
+.struck #h347 { color: var(--faint); }
+.struck #h347::after { transform: scaleX(1) rotate(-4deg); }
+#h7 { position: absolute; left: 50%; top: -.52em; font-size: .62em; color: var(--ok); font-weight: 800; transform: translateX(-50%) rotate(-10deg) scale(0); transition: transform .45s cubic-bezier(.3,1.7,.5,1) .15s; }
+.struck #h7 { transform: translateX(-50%) rotate(-10deg) scale(1); }
+.herofig { position: relative; }
+.sticker { position: absolute; right: -14px; top: -26px; z-index: 2; width: 98px; height: 98px; border-radius: 50%; background: var(--sticker); color: #1d1b2c; display: grid; place-items: center; text-align: center; font: 800 14px/1.05 var(--display); letter-spacing: .02em; text-transform: uppercase; transform: rotate(12deg); box-shadow: 0 8px 20px -8px rgba(0,0,0,.35); transition: transform .35s cubic-bezier(.3,1.6,.5,1); }
+.herofig:hover .sticker { transform: rotate(-8deg) scale(1.08); }
+.overheard { border-top: 1px solid var(--line); padding-block: 22px; background: var(--tint); overflow: hidden; }
+.ohlab { font: 500 12px var(--mono); color: var(--faint); text-align: center; margin-bottom: 12px; padding-inline: 16px; }
+.marq { display: flex; width: max-content; animation: marq 48s linear infinite; }
+.marq span { font: 600 21px var(--display); letter-spacing: -0.01em; white-space: nowrap; color: var(--ink); margin-right: 56px; }
+.marq span::before { content: "\201C"; color: var(--accent); }
+.marq span::after { content: "\201D"; color: var(--accent); }
+.overheard:hover .marq { animation-play-state: paused; }
+@keyframes marq { to { transform: translateX(-50%); } }
+#why { border-top: 1px solid var(--line); }
+.hero h1 em { font-style: normal; color: var(--bad); font-variant-numeric: tabular-nums; }
+.hero .lede { font-size: 19px; color: var(--muted); max-width: 34ch; margin: 0 0 30px; }
+.ctas { display: flex; flex-wrap: wrap; gap: 10px; }
+.facts { margin-top: 26px; font-size: 14px; color: var(--faint); }
+
+.mini { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--raised); }
+.mini .bar { background: var(--chrome); height: 40px; display: flex; align-items: flex-end; padding: 0 8px 0 64px; position: relative; }
+.mini .lights { position: absolute; left: 14px; top: 15px; display: flex; gap: 6px; }
+.mini .lights i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+.mstrip { display: flex; flex: 1; min-width: 0; height: 30px; overflow: hidden; }
+.mt { flex: 1 1 0; min-width: 0; max-width: 120px; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 3px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; position: relative; border-radius: 7px 7px 0 0; transition: max-width .45s ease, padding .45s ease, opacity .3s; }
+.mt::after { content: ""; position: absolute; right: 0; top: 8px; bottom: 8px; width: 1px; background: var(--line); }
+.mt i { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.mt span { overflow: hidden; text-overflow: ellipsis; }
+.mt.first { background: var(--raised); color: var(--ink); }
+.mt.gone { max-width: 0; padding: 0; opacity: 0; }
+.mini .tool { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.mini .omni { flex: 1; height: 26px; border-radius: 13px; background: var(--tint); font-size: 12px; color: var(--muted); display: flex; align-items: center; padding: 0 12px; }
+.mini .ext { position: relative; width: 22px; height: 22px; border-radius: 6px; background: var(--accent); margin-right: 10px; }
+.mini .ext .badge { box-shadow: 0 0 0 2px var(--raised); }
+.mini .page { padding: 34px 28px 30px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
+.mini .num { font: 400 clamp(64px, 9vw, 104px)/1 var(--display); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; color: var(--bad); transition: color .4s; }
+.mini .num.amber { color: var(--warn); } .mini .num.green { color: var(--ok); }
+.mini .cap { font-size: 15px; color: var(--muted); min-height: 1.6em; }
+.replay { margin-top: 10px; font: 500 13px var(--body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 99px; padding: 6px 14px; cursor: pointer; min-height: 34px; }
+.replay:hover { color: var(--ink); border-color: var(--accent); }
+
+/* 2 · why */
+.fears { display: grid; }
+.fear { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 56px; padding-block: 26px; border-top: 1px solid var(--line); align-items: baseline; }
+.fear:last-child { border-bottom: 1px solid var(--line); }
+.fear q { font: 400 clamp(22px, 2.6vw, 28px)/1.3 var(--display); letter-spacing: -0.02em; quotes: "\201C" "\201D"; background-image: linear-gradient(var(--bad), var(--bad)); background-size: 0% 1.5px; background-position: 0 62%; background-repeat: no-repeat; -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: background-size .5s ease, color .5s ease; }
+.fear:hover q { background-size: 100% 1.5px; color: var(--muted); }
+.fear p { margin: 0; color: var(--muted); }
+.fear p b { color: var(--ink); font-weight: 600; }
+
+/* 3 · try it */
+.demo { max-width: 760px; margin: 0 auto; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--raised); position: relative; }
+.demo .bar { background: var(--chrome); height: 44px; display: flex; align-items: flex-end; padding: 0 10px 0 72px; position: relative; }
+.demo .lights { position: absolute; left: 16px; top: 17px; display: flex; gap: 7px; }
+.demo .lights i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+.strip { display: flex; height: 34px; flex: 1; min-width: 0; overflow: hidden; }
+.tb { flex: 1 1 0; min-width: 0; max-width: 150px; height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; position: relative; border-radius: 8px 8px 0 0; transition: max-width .35s ease, padding .35s ease, opacity .25s; }
+.tb::after { content: ""; position: absolute; right: 0; top: 9px; bottom: 9px; width: 1px; background: var(--line); }
+.tb span { overflow: hidden; text-overflow: ellipsis; }
+.tb.cur { background: var(--raised); color: var(--ink); }
+.tb.cur::after { display: none; }
+.tb.kept { color: var(--ok-ink); }
+.tb.gone { max-width: 0; padding: 0; opacity: 0; }
+.fv { width: 14px; height: 14px; border-radius: 4px; flex: none; display: grid; place-items: center; color: #fff; font: 700 8.5px/1 var(--body); }
+.demo .tool { height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.demo .omni { flex: 1; min-width: 0; height: 28px; border-radius: 14px; background: var(--tint); display: flex; align-items: center; gap: 6px; padding: 0 14px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.demo .omni b { color: var(--ink); font-weight: 500; }
+.demo .ext { position: relative; width: 24px; height: 24px; border-radius: 6px; background: var(--accent); margin-right: 10px; flex: none; }
+.demo .ext .badge { box-shadow: 0 0 0 2px var(--raised); }
+.stage { padding: 20px; display: flex; flex-direction: column; gap: 12px; background: var(--bg); min-height: 380px; }
+.prog-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.prog { height: 4px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.prog div { height: 100%; width: 0; background: var(--ok); transition: width .45s cubic-bezier(.2,.8,.2,1); }
+.deck { position: relative; height: 188px; }
+.card { position: absolute; inset: 0; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 10px; transition: transform .42s cubic-bezier(.5,0,.75,0), opacity .42s; }
+.card.under { transform: translateY(8px) scale(.97); opacity: .55; }
+.card.enter { animation: enter .35s cubic-bezier(.2,.8,.2,1); }
+@keyframes enter { from { transform: translateY(8px) scale(.97); opacity: .55; } }
+.card.go-close { transform: translate(-130%, 30px) rotate(-12deg); opacity: 0; }
+.card.go-park { transform: translateY(110%) scale(.88); opacity: 0; }
+.card.go-todo { transform: translate(130%, 20px) rotate(10deg); opacity: 0; }
+.card.go-snooze { transform: translateY(-100%) scale(.92); opacity: 0; }
+.card.go-bookmark { transform: translate(55%, -85%) scale(.2) rotate(18deg); opacity: 0; }
+.card.go-keep { transform: translateX(36px); opacity: 0; }
+.card .h { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.card .big-fv { width: 32px; height: 32px; border-radius: 8px; flex: none; display: grid; place-items: center; color: #fff; font: 700 15px var(--body); }
+.card .t { font-weight: 600; font-size: 16.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .u { font-size: 12.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+.chip.bad { background: var(--bad-soft); color: var(--bad-ink); }
+.chip.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.chip.ok { background: var(--ok-soft); color: var(--ok-ink); }
+.chip.acc { background: var(--accent-soft); color: var(--accent-ink); }
+.hint { margin-top: auto; font-size: 13px; color: var(--muted); }
+.hint b { color: var(--ink); font-weight: 600; }
+.choices { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.choice { font: 500 13px var(--body); color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 9px; min-height: 50px; padding: 6px 2px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: transform .12s, background-color .15s, border-color .15s; }
+.choice kbd { font-size: 10.5px; padding: 0 5px; color: var(--faint); }
+.choice:hover { border-color: var(--accent); }
+.choice.flash, .choice:active { transform: scale(.95); background: var(--accent-soft); border-color: var(--accent); }
+.choice.suggest { border-color: var(--accent); color: var(--accent-ink); }
+.choice:disabled { opacity: .4; cursor: default; }
+.ledger { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.6em; }
+.ledger b { color: var(--ink); font-weight: 600; }
+.dtoast { position: absolute; left: 50%; top: 96px; transform: translate(-50%, -8px); opacity: 0; background: var(--ink); color: var(--bg); font-size: 13px; padding: 7px 8px 7px 14px; border-radius: 9px; display: flex; gap: 10px; align-items: center; white-space: nowrap; transition: transform .25s, opacity .25s; pointer-events: none; z-index: 5; }
+.dtoast.on { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+.dtoast button { font: 600 12.5px var(--body); color: var(--bg); background: color-mix(in srgb, var(--bg) 20%, transparent); border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; min-height: 28px; }
+.done { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+.done h3 { font-size: 28px; }
+.done .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+#confetti { position: absolute; inset: 0; pointer-events: none; z-index: 6; width: 100%; height: 100%; }
+.demo-note { text-align: center; font-size: 14px; color: var(--faint); margin-top: 16px; }
+
+/* 4 · features */
+.feats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); }
+.feat { padding: 30px 28px 30px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.feat:not(:nth-child(3n+1)) { padding-left: 28px; border-left: 1px solid var(--line); }
+.feat .ic { width: 38px; height: 38px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-ink); display: grid; place-items: center; transition: transform .3s; }
+.feat:hover .ic { transform: rotate(-6deg) scale(1.06); }
+.feat .ic svg { width: 20px; height: 20px; }
+.feat h3 { font-size: 21px; }
+.feat p { margin: 0; color: var(--muted); font-size: 15.5px; }
+.badges { display: flex; gap: 28px; flex-wrap: wrap; align-items: center; margin-top: 40px; padding: 22px 24px; border-radius: 14px; background: var(--tint); }
+.badges .t { font-family: var(--display); font-size: 20px; margin-right: auto; }
+.bs { display: flex; align-items: center; gap: 22px; font-size: 14px; color: var(--muted); }
+.bdg { position: relative; width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+.bdg svg { width: 16px; height: 16px; }
+.bdg .badge { box-shadow: 0 0 0 2px var(--tint); }
+
+/* 5 · teaser */
+.teaser { display: grid; grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr); gap: 56px; align-items: center; }
+.teaser h2 { margin-top: 14px; }
+.teaser p { color: var(--muted); }
+.player { border-radius: 14px; overflow: hidden; background: #0d0c14; border: 1px solid var(--line); }
+.player video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; max-width: 100%; }
+
+/* 6 · privacy */
+.never { display: flex; flex-wrap: wrap; gap: 8px; }
+.never span { font-size: 13.5px; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); text-decoration: line-through; text-decoration-color: var(--bad); }
+.perms { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 15.5px; min-width: 420px; }
+th, td { text-align: left; padding: 13px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 12px var(--mono); color: var(--faint); letter-spacing: .04em; }
+td:first-child { font-family: var(--mono); font-size: 13.5px; color: var(--accent-ink); white-space: nowrap; padding-right: 28px; width: 1%; }
+td:last-child { color: var(--muted); }
+
+/* 7 · install */
+.install { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: 56px; align-items: start; }
+.install h2 { margin-top: 14px; }
+.install .side p { color: var(--muted); }
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 16px; padding-block: 20px; border-top: 1px solid var(--line); }
+.steps li:last-child { border-bottom: 1px solid var(--line); }
+.steps li::before { content: counter(s, decimal-leading-zero); font: 400 13px var(--mono); color: var(--accent-ink); padding-top: 4px; }
+.steps b { display: block; font-weight: 600; font-size: 17px; }
+.steps span { color: var(--muted); font-size: 15.5px; }
+.copy { font: 500 12px var(--body); background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px; cursor: pointer; margin-left: 6px; min-height: 26px; vertical-align: 1px; }
+.copy:hover { color: var(--ink); border-color: var(--accent); }
+.tips { margin-top: 22px; display: grid; gap: 10px; font-size: 14.5px; color: var(--muted); }
+.tips b { color: var(--ink); font-weight: 600; }
+
+/* 8 · next */
+.next { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 0; border-top: 1px solid var(--line); }
+.next div { padding: 24px 22px 24px 0; border-bottom: 1px solid var(--line); }
+.next h3 { font-size: 19px; margin-bottom: 6px; }
+.next p { margin: 0; font-size: 15px; color: var(--muted); }
+.next .soon { font: 500 11.5px var(--mono); color: var(--faint); display: block; margin-bottom: 10px; }
+
+.final { text-align: center; padding-block: 96px; }
+.final h2 { font-size: clamp(34px, 4.6vw, 56px); font-weight: 800; letter-spacing: -0.035em; }
+.final p { margin: 14px auto 28px; max-width: 44ch; color: var(--muted); }
+footer { border-top: 1px solid var(--line); padding-block: 26px 40px; font-size: 14px; color: var(--muted); }
+footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: center; }
+footer .gh { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; text-decoration: none; }
+footer .gh:hover { text-decoration: underline; }
+
+@media (max-width: 900px) {
+  .hero, .head, .teaser, .install { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .feats { grid-template-columns: minmax(0, 1fr); }
+  .feat, .feat:not(:nth-child(3n+1)) { padding: 24px 0; border-left: 0; }
+  .fear { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .top nav { display: none; }
+  .theme { margin-left: auto; }
+  section { padding-block: 64px; }
+  .hero { padding-block: 40px 64px; }
+}
+@media (max-width: 560px) {
+  .choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stage { min-height: 430px; }
+  .demo .bar { padding-left: 62px; }
+  .badges .t { width: 100%; }
+}
+.extpill { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--accent-soft); color: var(--accent-ink); border-radius: 99px; padding: 7px 16px 7px 12px; font-size: 14px; margin-bottom: 22px; }
+.extpill svg { width: 18px; height: 18px; flex: none; }
+.extpill b { font-weight: 700; }
+.extpill span { color: var(--muted); }
+.extpill span::before { content: "·"; margin-right: 10px; color: var(--accent-ink); }
+.forchrome { font: 500 12px var(--body); color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+.vcap { font-size: 13.5px; color: var(--faint); margin-top: 10px; }
+.herofig .player { box-shadow: 0 30px 60px -28px rgba(40,30,120,.45); }
+.gallery { display: grid; grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.6fr); gap: 32px; align-items: start; }
+.gtabs { display: flex; flex-direction: column; gap: 4px; }
+.gtabs [role=tab] { text-align: left; font: inherit; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 12px; padding: 14px 16px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; transition: background-color .2s, color .2s, border-color .2s; }
+.gtabs [role=tab] b { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--ink); }
+.gtabs [role=tab] span { font-size: 14.5px; line-height: 1.45; }
+.gtabs [role=tab]:hover { background: var(--tint); }
+.gtabs [role=tab][aria-selected=true] { background: var(--raised); border-color: var(--line); color: var(--ink); box-shadow: 0 10px 24px -18px rgba(40,30,120,.35); }
+.gtabs [role=tab][aria-selected=true] b { color: var(--accent-ink); }
+.gshot { margin: 0; }
+.gframe { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--raised); box-shadow: 0 34px 70px -34px rgba(40,30,120,.45); }
+.gbar { height: 34px; background: var(--chrome); display: flex; align-items: center; gap: 7px; padding: 0 14px; }
+.gbar i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+.gbar span { margin-left: 10px; font-size: 12px; color: var(--faint); }
+.gimgs { position: relative; aspect-ratio: 16 / 10; max-width: 100%; background: #f6f6fb; }
+.gimgs img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; opacity: 0; transform: scale(1.01); transition: opacity .35s ease, transform .5s ease; }
+.gimgs img.on { opacity: 1; transform: none; }
+.gshot figcaption { display: none; font-size: 14.5px; color: var(--muted); margin-top: 12px; }
+@media (max-width: 900px) {
+  .gallery { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .gtabs { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .gtabs [role=tab] { padding: 8px 12px; border-color: var(--line); border-radius: 99px; }
+  .gtabs [role=tab] b { font-size: 14px; font-family: var(--body); font-weight: 600; }
+  .gtabs [role=tab] span { display: none; }
+  .gshot figcaption { display: block; }
+}
+@media (max-width: 560px) { .sticker { right: -4px; top: -30px; width: 82px; height: 82px; font-size: 12px; } .marq span { font-size: 18px; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  html { scroll-behavior: auto; }
+  .marq { animation: none; width: auto; flex-wrap: wrap; justify-content: center; row-gap: 8px; padding-inline: 16px; }
+  .marq span.dup { display: none; }
+}
+
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Tab Rehab, back to top">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span class="badge" data-badge>10</span></span>
+      <span>Tab Rehab <small class="forchrome">for Chrome</small></span>
+    </a>
+    <nav aria-label="Page sections">
+      <a href="#why">Why</a><a href="#try">Try it</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#install">Install</a>
+    </nav>
+    <button type="button" class="theme" id="theme" aria-label="Switch to dark mode">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+    </button>
+    <button type="button" class="btn btn-primary btn-small" data-download>Download</button>
+  </div>
+</header>
+
+<main id="top">
+  <!-- 1 · the problem -->
+  <div class="wrap hero">
+    <div>
+      <div class="extpill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.44 7.85c-.05.32.06.65.29.88l1.57 1.57c.47.47.7 1.09.7 1.7s-.23 1.24-.7 1.71l-1.61 1.61a.98.98 0 0 1-.84.28c-.47-.07-.8-.48-.97-.93a2.5 2.5 0 1 0-3.21 3.21c.45.17.86.5.93.97a.98.98 0 0 1-.28.84l-1.61 1.61a2.4 2.4 0 0 1-3.41 0l-1.57-1.57a1.03 1.03 0 0 0-.88-.29c-.49.07-.84.5-1.02.97a2.5 2.5 0 1 1-3.24-3.24c.47-.18.9-.53.97-1.02a1.03 1.03 0 0 0-.29-.88l-1.57-1.57a2.4 2.4 0 0 1 0-3.41L4.23 8.77c.24-.24.58-.35.92-.3.51.08.88.53 1.07 1.01a2.5 2.5 0 1 0 3.26-3.26c-.48-.2-.93-.56-1.01-1.07-.05-.34.06-.68.3-.92l1.53-1.53a2.4 2.4 0 0 1 3.4 0l1.57 1.57c.23.23.56.34.88.29.49-.07.84-.5 1.02-.97a2.5 2.5 0 1 1 3.24 3.24c-.47.18-.9.53-.97 1.02z"/></svg><b>Chrome extension</b><span>Also works in Edge, Brave and Arc</span></div>
+      <div class="label">Step 1 · Admit it</div>
+      <h1 id="heroH1">Hi. I have <em>347</em> tabs open.</h1>
+      <p class="lede">Tab Rehab is a free Chrome extension for chronic tab hoarders. Close tabs without losing a thing: one tab at a time, with an undo for everything.</p>
+      <div class="ctas">
+        <button type="button" class="btn btn-primary" data-download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          Download for Chrome
+        </button>
+        <a class="btn btn-line" href="#try">Try it first. No commitment.</a>
+      </div>
+      <div class="status" role="status" aria-live="polite" data-status></div>
+      <div class="facts">Free · No account · No judgment · Nothing leaves your laptop</div>
+    </div>
+    <div class="herofig"><span class="sticker" aria-hidden="true">Undo<br>included</span>
+      <div class="player">
+        <video controls playsinline preload="metadata" poster="teaser-poster.jpg" aria-label="Tab Rehab teaser video, 31 seconds">
+          <source src="teaser.mp4" type="video/mp4">
+        </video>
+      </div>
+      <div class="vcap">The 31-second confession. Sound on.</div>
+    </div>
+  </div>
+
+  <div class="overheard" role="region" aria-label="Overheard at Tab Rehab, made-up confessions">
+    <div class="ohlab">Overheard at Tab Rehab · made up, but be honest</div>
+    <div class="marq">
+      <span>That tab is load-bearing.</span><span>My "read later" tab is from 2019.</span><span>I have three copies of the same Rust tutorial. All on Day 1.</span><span>I don't close tabs. I wait for Chrome to crash.</span><span>I opened a tab to remind me to close tabs.</span><span>It's not hoarding if they're in groups.</span><span>I keep a recipe open that I've never cooked.</span>
+      <span class="dup" aria-hidden="true">That tab is load-bearing.</span><span class="dup" aria-hidden="true">My "read later" tab is from 2019.</span><span class="dup" aria-hidden="true">I have three copies of the same Rust tutorial. All on Day 1.</span><span class="dup" aria-hidden="true">I don't close tabs. I wait for Chrome to crash.</span><span class="dup" aria-hidden="true">I opened a tab to remind me to close tabs.</span><span class="dup" aria-hidden="true">It's not hoarding if they're in groups.</span><span class="dup" aria-hidden="true">I keep a recipe open that I've never cooked.</span>
+    </div>
+  </div>
+
+  <!-- 2 · why -->
+  <section id="why">
+    <div class="wrap">
+      <div class="head">
+        <div><div class="label">Step 2 · Understand why</div><h2>Clutter isn't the problem. Fear is.</h2></div>
+        <p>Researchers at Carnegie Mellon found people keep tabs open as reminders, and because closing one feels like losing it (CHI 2021, "When the Tab Comes Due"). Tab Rehab answers the fear.</p>
+      </div>
+      <div class="fears">
+        <div class="fear"><q>If I close it, I'll never find it again.</q><p><b>Undo, Recently closed and backups.</b> Park tabs and restore them to the same window, any time.</p></div>
+        <div class="fear"><q>I left it open so I wouldn't forget.</q><p><b>Make it a to-do.</b> A note, a link and a reminder. The tab closes; the promise stays.</p></div>
+        <div class="fear"><q>I might need it someday.</q><p><b>Snooze or bookmark it.</b> It reopens by itself, or waits in a folder that syncs everywhere.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · try it -->
+  <section id="try">
+    <div class="wrap">
+      <div class="head">
+        <div><div class="label">Step 3 · Try it, no commitment</div><h2>A Rehab session, minus your real tabs.</h2></div>
+        <p>Ten tabs, oldest first. Decide what each one is for with a key: <kbd>K</kbd> keep, <kbd>T</kbd> to-do, <kbd>S</kbd> snooze, <kbd>B</kbd> bookmark, <kbd>P</kbd> park, <kbd>C</kbd> close, <kbd>Z</kbd> undo. Or just click.</p>
+      </div>
+      <div class="demo" id="demo">
+        <div class="bar"><div class="lights" aria-hidden="true"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="strip" id="strip" aria-hidden="true"></div></div>
+        <div class="tool"><div class="omni" id="omni"></div><div class="ext" aria-hidden="true"><span class="badge" data-badge>10</span></div></div>
+        <div class="stage">
+          <div class="prog-row"><span id="handled">0 handled · 10 to go</span><span id="pct">0%</span></div>
+          <div class="prog"><div id="bar"></div></div>
+          <div class="deck" id="deck" aria-live="polite"></div>
+          <div class="choices" id="choices" role="group" aria-label="Decide what this tab is for">
+            <button type="button" class="choice" data-act="keep">Keep<kbd>K</kbd></button>
+            <button type="button" class="choice" data-act="todo">To-do<kbd>T</kbd></button>
+            <button type="button" class="choice" data-act="snooze">Snooze<kbd>S</kbd></button>
+            <button type="button" class="choice" data-act="bookmark">Bookmark<kbd>B</kbd></button>
+            <button type="button" class="choice" data-act="park">Park<kbd>P</kbd></button>
+            <button type="button" class="choice" data-act="close">Close<kbd>C</kbd></button>
+          </div>
+          <div class="ledger" id="ledger"></div>
+        </div>
+        <div class="dtoast" id="dtoast" role="status"><span id="dtoast-msg"></span><button type="button" id="undo">Undo</button></div>
+        <canvas id="confetti" aria-hidden="true"></canvas>
+      </div>
+      <p class="demo-note">The outlined button is Tab Rehab's suggestion. You always decide.</p>
+    </div>
+  </section>
+
+  <!-- 4 · what it does -->
+  <section id="features">
+    <div class="wrap">
+      <div class="head">
+        <div><div class="label">Step 4 · Meet your tools</div><h2>Six ways to let go. None of them final.</h2></div>
+        <p>Click the icon or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>. Search everything with <kbd>/</kbd>, group by site or window, and right-click any page to park it or make it a to-do.</p>
+      </div>
+      <div class="gallery">
+        <div class="gtabs" role="tablist" aria-label="Screens of the extension">
+          <button type="button" role="tab" aria-selected="true" aria-controls="gpanel" data-i="0"><b>Open tabs</b><span>Every tab from every window, grouped by site or window, with duplicates flagged.</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="gpanel" data-i="1" tabindex="-1"><b>Rehab session</b><span>One tab at a time, oldest first. Six keys decide its fate.</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="gpanel" data-i="2" tabindex="-1"><b>Quick wins</b><span>Duplicates, old searches and error pages, closed in one safe click.</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="gpanel" data-i="3" tabindex="-1"><b>Parked &amp; snoozed</b><span>Named lists you can restore any time, and tabs that reopen by themselves.</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="gpanel" data-i="4" tabindex="-1"><b>To-dos</b><span>Tabs you kept "so you wouldn't forget", as tasks with reminders.</span></button>
+        </div>
+        <figure class="gshot" id="gpanel" role="tabpanel">
+          <div class="gframe">
+            <div class="gbar" aria-hidden="true"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>Tab Rehab</span></div>
+            <div class="gimgs">
+              <img class="on" src="shot-open-tabs.jpg" width="1600" height="1000" alt="Open tabs view: tabs grouped by site, with a duplicate badge and Park all and Close all buttons per group">
+              <img src="shot-rehab.jpg" width="1600" height="1000" alt="Rehab session: one tab card with Keep, To-do, Snooze, Bookmark, Park and Close" loading="lazy">
+              <img src="shot-quick-wins.jpg" width="1600" height="1000" alt="Quick wins: duplicate copies and junk tabs with a Close all safely button" loading="lazy">
+              <img src="shot-parked.jpg" width="1600" height="1000" alt="Parked and snoozed: a snoozed talk and parked lists like Porto trip with Restore all" loading="lazy">
+              <img src="shot-todos.jpg" width="1600" height="1000" alt="To-dos with notes, an overdue reminder and a read-later item" loading="lazy">
+            </div>
+          </div>
+          <figcaption id="gcap">Every tab from every window, grouped by site or window, with duplicates flagged.</figcaption>
+        </figure>
+      </div>
+      <div class="feats" hidden>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><h3>Rehab session</h3><p>Your tabs one at a time, oldest first, with six one-key decisions and a progress bar.</p></div>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg></div><h3>Quick wins</h3><p>Duplicates, empty tabs, old searches and error pages, closed in one click with zero risk.</p></div>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div><h3>Stale tabs</h3><p>Tabs you haven't opened in 1 to 30 days. Park them all at once; pinned and playing tabs are never touched.</p></div>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h18M5 7v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7M9 11h6"/></svg></div><h3>Park &amp; restore</h3><p>Save tabs to a named list and close them. Restore later, back in the window they came from.</p></div>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3H7v18l5-4 5 4z"/></svg></div><h3>Snooze &amp; bookmarks</h3><p>Close a tab and have it reopen tomorrow, or save it into a bookmarks folder of your choice.</p></div>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"/></svg></div><h3>To-dos with reminders</h3><p>A "don't forget" tab becomes a note, a link and a Chrome notification at the time you pick.</p></div>
+      </div>
+      <div class="badges" role="list" aria-label="The toolbar badge shows your tab count in three colours">
+        <span class="t" role="listitem">The badge keeps count</span>
+        <span class="bs" role="listitem"><span class="bdg" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span class="badge green">24</span></span>Under 30</span>
+        <span class="bs" role="listitem"><span class="bdg" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span class="badge amber">68</span></span>Under 100</span>
+        <span class="bs" role="listitem"><span class="bdg" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span class="badge">347</span></span>Time for rehab</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · privacy, before you install -->
+  <section id="privacy">
+    <div class="wrap">
+      <div class="head">
+        <div><div class="label">Step 5 · Trust the process</div><h2>What happens in rehab stays in rehab.</h2></div>
+        <div>
+          <p style="margin-bottom:16px">Nothing leaves your laptop. Your tabs, parked lists and to-dos live in Chrome's local storage. Export a backup any time from the sidebar.</p>
+          <div class="never" aria-label="Things Tab Rehab doesn't have"><span>accounts</span><span>servers</span><span>analytics</span><span>tracking</span><span>ads</span></div>
+        </div>
+      </div>
+      <div class="perms">
+        <table>
+          <thead><tr><th scope="col">PERMISSION</th><th scope="col">WHY IT'S NEEDED</th></tr></thead>
+          <tbody>
+            <tr><td>tabs</td><td>See, group, close and reopen your tabs.</td></tr>
+            <tr><td>storage</td><td>Keep parked lists, to-dos and settings on this laptop.</td></tr>
+            <tr><td>alarms</td><td>Wake snoozed tabs and send reminders on time.</td></tr>
+            <tr><td>notifications</td><td>Show to-do reminders and the stale-tab nudge.</td></tr>
+            <tr><td>contextMenus</td><td>The right-click "Park this tab" and "Save as a to-do".</td></tr>
+            <tr><td>bookmarks</td><td>Save tabs into the bookmarks folder you pick.</td></tr>
+            <tr><td>favicon</td><td>Show site icons in your lists.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · install -->
+  <section id="install">
+    <div class="wrap install">
+      <div class="side">
+        <div class="label">Step 6 · Commit</div>
+        <h2>Two minutes. No store needed.</h2>
+        <p>Tab Rehab isn't on the Chrome Web Store yet, so you load it yourself in developer mode. Works in Chrome, Edge, Brave and Arc.</p>
+        <button type="button" class="btn btn-primary" data-download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          Download tab-rehab.zip
+        </button>
+        <div class="status" role="status" aria-live="polite" data-status></div>
+      </div>
+      <div>
+        <ol class="steps">
+          <li><div><b>Unzip it somewhere you'll keep</b><span>Chrome loads it from that folder, so don't delete it.</span></div></li>
+          <li><div><b>Open <code id="extUrl">chrome://extensions</code><button type="button" class="copy" data-copy="chrome://extensions">Copy</button></b><span>Paste it in the address bar and switch on Developer mode, top right.</span></div></li>
+          <li><div><b>Click "Load unpacked"</b><span>Choose the <code>tab-rehab</code> folder.</span></div></li>
+          <li><div><b>Pin it and start</b><span>Click the puzzle icon, pin Tab Rehab, then click it or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>.</span></div></li>
+        </ol>
+        <div class="tips">
+          <div><b>Several Chrome profiles?</b> Install it in each one; Chrome keeps profiles separate.</div>
+          <div><b>Updating?</b> Replace the files in the same folder and click reload on Tab Rehab in <code>chrome://extensions</code>. Your data stays.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · coming next -->
+  <section>
+    <div class="wrap">
+      <div class="head">
+        <div><div class="label">Step 7 · Stay clean</div><h2>Coming next: relapse prevention.</h2></div>
+        <p>What we're building next, shaped by people who actually hoard tabs.</p>
+      </div>
+      <div class="next">
+        <div><span class="soon">soon</span><h3>Relapse alerts</h3><p>A gentle nudge when tabs pile up past your usual. Never in quiet hours.</p></div>
+        <div><span class="soon">soon</span><h3>Recovery</h3><p>Your progress, and proof it was safe to let go.</p></div>
+        <div><span class="soon">soon</span><h3>Page previews</h3><p>See how a page looked before you decide its fate.</p></div>
+        <div><span class="soon">soon</span><h3>Every profile</h3><p>Work and personal tabs in one view.</p></div>
+        <div><span class="soon">soon</span><h3>Auto-backup</h3><p>Weekly, and before every big change.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <h2>Day 1 of recovery starts here.</h2>
+      <p>Download it, load it, run your first Rehab session. Your tabs will still be there. Just fewer of them.</p>
+      <button type="button" class="btn btn-primary" data-download>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        Download for Chrome
+      </button>
+      <div class="status" role="status" aria-live="polite" data-status></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Tab Rehab · One tab at a time. · <a href="https://github.com/jorgesousa/tab-rehab">Source on GitHub</a></span>
+    <span>Built by Jorge Sousa · <a href="https://github.com/jorgesousa" target="_blank" rel="noopener" class="gh"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>github.com/jorgesousa</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = id => document.getElementById(id);
+  const root = document.documentElement;
+
+  /* ---------- theme switch ---------- */
+  try { const saved = localStorage.getItem('tab-rehab-theme'); if (saved === 'dark' || saved === 'light') root.dataset.theme = saved; } catch (e) {}
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : mq.matches;
+  function syncTheme() {
+    const d = isDark();
+    document.body.classList.toggle('is-dark', d);
+    $('theme').setAttribute('aria-label', d ? 'Switch to light mode' : 'Switch to dark mode');
+  }
+  $('theme').addEventListener('click', () => {
+    const next = isDark() ? 'light' : 'dark';
+    root.dataset.theme = next;
+    try { localStorage.setItem('tab-rehab-theme', next); } catch (e) {}
+    syncTheme();
+  });
+  mq.addEventListener && mq.addEventListener('change', syncTheme);
+  new MutationObserver(syncTheme).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  syncTheme();
+
+  const badgeClass = (el, n, amberAt, greenAt) => { el.classList.toggle('amber', n < amberAt && n >= greenAt); el.classList.toggle('green', n < greenAt); };
+
+  /* ---------- download ---------- */
+  const statuses = document.querySelectorAll('[data-status]');
+  const say = (msg, kind) => statuses.forEach(s => { s.textContent = msg; s.className = 'status' + (kind ? ' ' + kind : ''); });
+  function download() {
+    const a = document.createElement('a');
+    a.href = 'tab-rehab.zip'; a.download = 'tab-rehab.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    say('Downloading tab-rehab.zip. Next: unzip it and follow the 4 install steps.', 'ok');
+  }
+  document.querySelectorAll('[data-download]').forEach(b => b.addEventListener('click', download));
+
+  document.querySelectorAll('[data-copy]').forEach(btn => btn.addEventListener('click', () => {
+    const flash = t => { btn.textContent = t; setTimeout(() => { btn.textContent = 'Copy'; }, 1600); };
+    const fallback = () => { const r = document.createRange(); r.selectNodeContents($('extUrl')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); flash('Selected'); };
+    try { navigator.clipboard.writeText(btn.dataset.copy).then(() => flash('Copied'), fallback); } catch (e) { fallback(); }
+  }));
+
+  /* ---------- screenshot gallery ---------- */
+  const gtabs = [...document.querySelectorAll('.gtabs [role=tab]')], gimgs = [...document.querySelectorAll('.gimgs img')];
+  function showShot(i, focus) {
+    gtabs.forEach((t, k) => { const on = k === i; t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1; });
+    gimgs.forEach((im, k) => im.classList.toggle('on', k === i));
+    $('gcap').textContent = gtabs[i].querySelector('span').textContent;
+    if (focus) gtabs[i].focus();
+  }
+  gtabs.forEach((t, i) => {
+    t.addEventListener('click', () => showShot(i));
+    t.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); showShot((i + 1) % gtabs.length, true); }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); showShot((i + gtabs.length - 1) % gtabs.length, true); }
+    });
+  });
+
+  /* ---------- the playable Rehab session ---------- */
+  const TABS = [
+    { t: 'Learn Rust in 30 days — Day 1', u: 'rust-in-30-days.dev/day-1', c: '#e8590c', why: [['bad', 'not opened for 7 months']], s: 'close', tip: 'You stopped at Day 1. Be honest.' },
+    { t: 'Inbox (1) — Reply to the landlord', u: 'mail.example.com/inbox', c: '#d93025', why: [['warn', 'kept open as a reminder']], s: 'todo', tip: 'This is a promise, not a tab. Make it a to-do.' },
+    { t: 'Flights Lisbon → Tokyo', u: 'skyfares.travel/lis-tyo', c: '#1a73e8', why: [['bad', 'not opened for 2 months']], s: 'park', tip: 'Maybe someday. Park it.' },
+    { t: 'best tab manager - Search', u: 'search.example.com/?q=best+tab+manager', c: '#4285f4', why: [['warn', 'old search']], s: 'close', tip: 'You found what you were looking for.' },
+    { t: 'Conference talk (1:02:13)', u: 'video.example.com/watch', c: '#cc0000', why: [['acc', 'paused at 4:12']], s: 'snooze', tip: 'Not now. Snooze it to the weekend.' },
+    { t: 'Best standing desk?', u: 'deskforum.net/best-standing-desk', c: '#c2185b', why: [['bad', 'not opened for 1 year'], ['warn', 'duplicate']], s: 'close', tip: 'You have another copy open anyway.' },
+    { t: 'Sourdough starter, day 3', u: 'sourdough.club/starter', c: '#8d6e63', why: [['acc', 'a recipe you love']], s: 'bookmark', tip: 'Worth keeping for good. Bookmark it.' },
+    { t: 'Q3 roadmap — Docs', u: 'docs.example.com/q3-roadmap', c: '#1967d2', why: [['ok', 'opened today']], s: 'keep', tip: 'You’re actually using this one. Keep it.' },
+    { t: 'New Tab', u: 'newtab', c: '#9e9e9e', why: [['warn', 'empty tab']], s: 'close', tip: 'It was never anything.' },
+    { t: 'How to stop hoarding tabs', u: 'focusweekly.blog/stop-hoarding', c: '#5b4cdb', why: [['bad', 'not opened for 5 months']], s: 'close', tip: 'You’re already doing it.' }
+  ];
+  const LABEL = { keep: 'Kept', todo: 'Saved as a to-do', snooze: 'Snoozed until Saturday', bookmark: 'Bookmarked', park: 'Parked', close: 'Closed. Nothing is lost' };
+  const N = TABS.length;
+  let decisions = [];
+  const deck = $('deck'), strip = $('strip');
+  const decided = () => new Set(decisions.map(d => d.i));
+  const current = () => { const d = decided(); for (let i = 0; i < N; i++) if (!d.has(i)) return i; return -1; };
+  const openCount = () => N - decisions.filter(d => d.act !== 'keep').length;
+
+  strip.innerHTML = TABS.map(t => `<div class="tb"><span class="fv" style="background:${t.c}">${t.t[0]}</span><span>${t.t}</span></div>`).join('');
+  function renderStrip() {
+    const d = new Map(decisions.map(x => [x.i, x.act])), cur = current();
+    [...strip.children].forEach((el, i) => { const a = d.get(i); el.classList.toggle('gone', !!a && a !== 'keep'); el.classList.toggle('kept', a === 'keep'); el.classList.toggle('cur', i === cur); });
+  }
+  function setBadges() {
+    const n = openCount();
+    document.querySelectorAll('[data-badge]').forEach(b => {
+      if (b.textContent !== String(n)) { b.textContent = n; b.classList.remove('bump'); void b.offsetWidth; if (!reduce) b.classList.add('bump'); }
+      badgeClass(b, n, 8, 5);
+    });
+  }
+  const omniFor = u => { const [h, ...r] = u.split('/'); return `<b>${h}</b>${r.length ? '/' + r.join('/') : ''}`; };
+  function cardHTML(i, cls) {
+    const t = TABS[i];
+    return `<div class="card ${cls}"><div class="h"><div class="big-fv" style="background:${t.c}" aria-hidden="true">${t.t[0]}</div><div style="min-width:0"><div class="t">${t.t}</div><div class="u">https://${t.u}</div></div></div>
+      <div class="chips">${t.why.map(([k, s]) => `<span class="chip ${k}">${s}</span>`).join('')}</div><div class="hint">Suggestion: <b>${t.tip}</b></div></div>`;
+  }
+  function renderDeck(entering) {
+    const cur = current(), handled = decisions.length;
+    $('handled').textContent = `${handled} handled · ${N - handled} to go`;
+    $('pct').textContent = Math.round(handled / N * 100) + '%';
+    $('bar').style.width = (handled / N * 100) + '%';
+    const c = { close: 0, park: 0, todo: 0, snooze: 0, bookmark: 0, keep: 0 }; decisions.forEach(d => c[d.act]++);
+    const letGo = handled - c.keep;
+    $('ledger').innerHTML = handled ? `<span>Let go: <b>${letGo}</b></span><span>Kept: <b>${c.keep}</b></span><span>To-dos: <b>${c.todo}</b></span><span>Lost forever: <b>0</b></span>` : '';
+    document.querySelectorAll('.choice').forEach(b => { b.classList.toggle('suggest', cur >= 0 && b.dataset.act === TABS[cur].s); b.disabled = cur < 0; });
+    if (cur < 0) return showDone(letGo);
+    const nxt = (() => { const d = decided(); for (let i = cur + 1; i < N; i++) if (!d.has(i)) return i; return -1; })();
+    deck.innerHTML = (nxt >= 0 ? cardHTML(nxt, 'under') : '') + cardHTML(cur, 'top' + (entering && !reduce ? ' enter' : ''));
+    $('omni').innerHTML = omniFor(TABS[cur].u);
+  }
+  function showDone(letGo) {
+    deck.innerHTML = `<div class="done"><div class="label" style="justify-content:center">Session complete</div><h3>${N} tabs in. ${N - letGo} left.</h3>
+      <p class="muted" style="margin:0;font-size:14.5px">You let go of ${letGo}. Lost forever: 0.</p>
+      <div class="row"><button type="button" class="btn btn-primary btn-small" id="doReal">Do it with your real tabs</button><button type="button" class="btn btn-line btn-small" id="again">Start again</button></div></div>`;
+    $('again').addEventListener('click', () => { decisions = []; renderStrip(); setBadges(); renderDeck(true); $('dtoast').classList.remove('on'); });
+    $('doReal').addEventListener('click', download);
+    $('omni').innerHTML = '<b>Tab Rehab</b>&nbsp;· Day 1 of recovery';
+    confetti();
+  }
+  let tt;
+  function toast(m) { $('dtoast-msg').textContent = m; $('dtoast').classList.add('on'); clearTimeout(tt); tt = setTimeout(() => $('dtoast').classList.remove('on'), 2600); }
+  let busy = false;
+  function decide(act) {
+    const cur = current(); if (cur < 0 || busy) return;
+    const btn = document.querySelector(`.choice[data-act="${act}"]`);
+    if (btn) { btn.classList.add('flash'); setTimeout(() => btn.classList.remove('flash'), 160); }
+    busy = true;
+    const finish = () => { decisions.push({ i: cur, act }); renderStrip(); setBadges(); renderDeck(true); toast(LABEL[act] + '.'); busy = false; };
+    const card = deck.querySelector('.card.top');
+    if (card && !reduce) { card.classList.add('go-' + act); deck.querySelector('.card.under')?.classList.remove('under'); setTimeout(finish, 300); } else finish();
+  }
+  function undo() { if (!decisions.length) return; decisions.pop(); renderStrip(); setBadges(); renderDeck(true); toast('Undone. It’s back.'); }
+  $('choices').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) decide(b.dataset.act); });
+  $('undo').addEventListener('click', undo);
+  let demoVisible = false;
+  if ('IntersectionObserver' in window) new IntersectionObserver(es => { demoVisible = es[0].isIntersecting; }, { threshold: 0.4 }).observe($('demo'));
+  const KEYS = { k: 'keep', t: 'todo', s: 'snooze', b: 'bookmark', p: 'park', c: 'close' };
+  document.addEventListener('keydown', e => {
+    if (!demoVisible || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (/INPUT|TEXTAREA|SELECT|VIDEO/.test(document.activeElement.tagName)) return;
+    const k = e.key.toLowerCase();
+    if (KEYS[k]) { e.preventDefault(); decide(KEYS[k]); } else if (k === 'z') { e.preventDefault(); undo(); }
+  });
+
+  function confetti() {
+    if (reduce) return;
+    const cv = $('confetti'), box = $('demo').getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+    cv.width = box.width * dpr; cv.height = box.height * dpr;
+    const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+    const css = getComputedStyle(root), cols = ['--accent', '--ok', '--warn', '--bad', '--accent-ink'].map(v => css.getPropertyValue(v).trim());
+    const P = Array.from({ length: 110 }, (_, i) => ({ x: box.width / 2, y: box.height * .45, vx: (Math.random() - .5) * 11, vy: -Math.random() * 10 - 3, r: Math.random() * 6.28, vr: (Math.random() - .5) * .3, w: 5 + Math.random() * 6, h: 3 + Math.random() * 4, c: cols[i % cols.length] }));
+    const t0 = performance.now();
+    (function f(now) {
+      const t = (now - t0) / 1000; ctx.clearRect(0, 0, box.width, box.height);
+      P.forEach(p => { p.vy += .32; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.r += p.vr; ctx.save(); ctx.globalAlpha = Math.max(0, 1 - t / 2.4); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.cos(p.r * 2)); ctx.restore(); });
+      if (t < 2.4) requestAnimationFrame(f); else ctx.clearRect(0, 0, box.width, box.height);
+    })(t0);
+  }
+
+  renderStrip(); setBadges(); renderDeck(false);
+})();
+</script>
+</body>
+</html>

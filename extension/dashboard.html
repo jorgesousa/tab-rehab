@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tab Rehab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="icons/icon32.png">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<aside class="side">
+  <div class="brand"><img src="icons/icon48.png" alt=""><div><b>Tab Rehab</b><small>One tab at a time</small></div></div>
+  <nav id="nav">
+    <a data-view="rehab" href="#rehab" class="cta">Rehab session</a>
+    <a data-view="tabs" href="#tabs">Open tabs <span class="count" id="c-tabs"></span></a>
+    <a data-view="stale" href="#stale">Stale <span class="count warn" id="c-stale"></span></a>
+    <a data-view="wins" href="#wins">Quick wins <span class="count warn" id="c-wins"></span></a>
+    <a data-view="parked" href="#parked">Parked &amp; snoozed <span class="count" id="c-parked"></span></a>
+    <a data-view="todos" href="#todos">To-dos <span class="count" id="c-todos"></span></a>
+  </nav>
+  <div class="health" id="health"></div>
+  <div class="side-foot">
+    <button class="link" id="export">Export backup</button>
+    <label class="link">Import backup<input type="file" id="import" accept="application/json" hidden></label>
+  </div>
+</aside>
+
+<main>
+  <header class="top">
+    <input id="search" type="search" placeholder="Search tabs, parked tabs and to-dos   ( / )" autocomplete="off">
+    <div id="toolbar" class="toolbar"></div>
+  </header>
+  <section id="view"></section>
+</main>
+
+<div id="bulk" class="bulk" hidden>
+  <span id="bulk-n"></span>
+  <button data-bulk="park" class="primary">Park &amp; close</button>
+  <button data-bulk="todo">Make to-dos</button>
+  <button data-bulk="snooze">Snooze</button>
+  <button data-bulk="bookmark">Bookmark</button>
+  <button data-bulk="close" class="danger">Close</button>
+  <button data-bulk="clear" class="ghost">Clear</button>
+</div>
+
+<dialog id="todo-dlg">
+  <form method="dialog" id="todo-form">
+    <h3 id="todo-h">New to-do</h3>
+    <div class="seg" id="kind">
+      <label><input type="radio" name="kind" value="do" checked><span>To do</span></label>
+      <label><input type="radio" name="kind" value="read"><span>Read later</span></label>
+    </div>
+    <label>What do you need to do?<input name="title" required></label>
+    <label>Link<input name="url" placeholder="https://…"></label>
+    <label>Note<textarea name="note" rows="3" placeholder="e.g. Reply to Ana about the budget"></textarea></label>
+    <label>Remind me</label>
+    <div class="quick" data-target="remindAt">
+      <button type="button" data-when="2h">In 2 hours</button>
+      <button type="button" data-when="tonight">Tonight</button>
+      <button type="button" data-when="tomorrow">Tomorrow</button>
+      <button type="button" data-when="weekend">Weekend</button>
+      <button type="button" data-when="monday">Next Monday</button>
+      <button type="button" data-when="none">No reminder</button>
+    </div>
+    <input name="remindAt" type="datetime-local">
+    <label class="check" id="close-wrap"><input type="checkbox" name="closeTab" checked> Close the tab after saving (it lives in the to-do now)</label>
+    <div class="dlg-actions">
+      <button value="cancel" formnovalidate class="ghost">Cancel</button>
+      <button value="save" class="primary">Save to-do</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="snooze-dlg">
+  <form method="dialog" id="snooze-form">
+    <h3 id="snooze-h">Snooze</h3>
+    <p class="muted">The tab closes now and reopens by itself at the time you pick.</p>
+    <div class="quick big" data-target="wakeAt">
+      <button type="button" data-when="2h">In 2 hours</button>
+      <button type="button" data-when="tonight">Tonight</button>
+      <button type="button" data-when="tomorrow">Tomorrow</button>
+      <button type="button" data-when="weekend">Weekend</button>
+      <button type="button" data-when="monday">Next Monday</button>
+      <button type="button" data-when="month">In a month</button>
+    </div>
+    <input name="wakeAt" type="datetime-local" required>
+    <div class="dlg-actions">
+      <button value="cancel" formnovalidate class="ghost">Cancel</button>
+      <button value="save" class="primary">Snooze</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bm-dlg">
+  <form method="dialog" id="bm-form">
+    <h3 id="bm-h">Save as bookmarks</h3>
+    <p class="muted" id="bm-sub"></p>
+    <label>Save inside<select name="parent"></select></label>
+    <label>In a new subfolder (leave empty to save directly)<input name="folder" placeholder="e.g. Porto trip"></label>
+    <label class="check"><input type="checkbox" name="closeAfter" checked> <span id="bm-close-label">Close the tabs after saving</span></label>
+    <div class="dlg-actions">
+      <button value="cancel" formnovalidate class="ghost">Cancel</button>
+      <button value="save" class="primary">Save bookmarks</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden><span id="toast-msg"></span><button id="toast-btn" class="link"></button></div>
+<script src="dashboard.js"></script>
+</body>
+</html>
