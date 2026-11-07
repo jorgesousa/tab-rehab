@@ -63,6 +63,6 @@ Certify all three: not sold to third parties, not used for unrelated purposes, n
 **Privacy policy URL:** https://jorgesousa.github.io/tab-rehab/privacy.html
 
 ## Graphics
-- Icon 128×128: `extension/icons/icon128.png`
+- Store icon 128×128: `store/store-icon-128.png` (96×96 artwork + 16 px transparent padding, per Web Store guidelines)
 - Screenshots 1280×800: `store/screenshot-*.png`
 - Small promo tile 440×280: `store/promo-small-440x280.png`
