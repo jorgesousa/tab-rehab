@@ -128,7 +128,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 async function setup() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'tr-todo', title: 'Save this tab as a to-do', contexts: ['page', 'action'] });
-    chrome.contextMenus.create({ id: 'tr-park', title: 'Park this tab (save & close)', contexts: ['page', 'action'] });
+    chrome.contextMenus.create({ id: 'tr-park', title: 'Park this tab (save && close)', contexts: ['page', 'action'] });
+    // Tab strip (Chrome 150+): right-click a tab, or several selected tabs. Older Chrome rejects the
+    // 'tab' context; the callback swallows that and the page menu above keeps working.
+    const strip = (id, title) => chrome.contextMenus.create({ id, title, contexts: ['tab'] }, () => void chrome.runtime.lastError);
+    strip('tr-strip-park', 'Park (save && close)');
+    strip('tr-strip-todo', 'Turn into to-dos');
+    strip('tr-strip-snooze', 'Snooze until tomorrow, 9:00');
   });
   const { settings = {} } = await chrome.storage.local.get('settings');
   if (settings.nudge !== false && !(await chrome.alarms.get('nudge'))) {
@@ -150,30 +156,60 @@ chrome.runtime.onInstalled.addListener(async details => {
 chrome.runtime.onStartup.addListener(setup);
 
 // ---------- Context menu: quick to-do / quick park ----------
+// The tabs a menu click is about: on the tab strip, every selected tab in that window
+// (if you right-clicked one of them); everywhere else, just this tab. Never the dashboard itself.
+async function menuTabs(info, tab) {
+  let tabs = [tab];
+  if (String(info.menuItemId).startsWith('tr-strip-') && tab.highlighted) {
+    tabs = await chrome.tabs.query({ windowId: tab.windowId, highlighted: true });
+  }
+  return tabs.filter(t => t.url && !t.url.startsWith(DASH_URL));
+}
+async function bootIdBg() {
+  let { bootId } = await chrome.storage.session.get('bootId');
+  if (!bootId) { bootId = uid(); await chrome.storage.session.set({ bootId }); }
+  return bootId;
+}
+const closeIds = async ids => { try { await chrome.tabs.remove(ids); } catch { for (const id of ids) await chrome.tabs.remove(id).catch(() => {}); } };
+
+async function parkFromMenu(tabs) {
+  const { sessions = [] } = await chrome.storage.local.get('sessions');
+  const today = new Date().toLocaleDateString('sv'), id = 'quick-' + today;
+  let s = sessions.find(x => x.id === id);
+  if (!s) { s = { id, name: 'Quick-parked ' + new Date().toLocaleDateString(), createdAt: Date.now(), tabs: [] }; sessions.unshift(s); }
+  const boot = await bootIdBg();
+  for (const t of tabs) s.tabs.push({ title: t.title || t.url, url: t.url, parkedAt: Date.now(), windowId: t.windowId, index: t.index, boot });
+  await chrome.storage.local.set({ sessions });
+  await closeIds(tabs.map(t => t.id));
+  await track('parked', tabs.length);
+}
+async function todoFromMenu(tabs, close) {
+  const { todos = [] } = await chrome.storage.local.get('todos');
+  todos.unshift(...tabs.map(t => ({ id: uid(), kind: 'do', title: t.title || t.url, url: t.url, note: '', createdAt: Date.now(), remindAt: null, done: false })));
+  await chrome.storage.local.set({ todos });
+  if (close) await closeIds(tabs.map(t => t.id));
+  await track('todo', tabs.length);
+}
+async function snoozeFromMenu(tabs) {
+  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+  const boot = await bootIdBg();
+  const { snoozed = [] } = await chrome.storage.local.get('snoozed');
+  snoozed.push(...tabs.map(t => ({ id: uid(), title: t.title || t.url, url: t.url, wakeAt: +d, snoozedAt: Date.now(), windowId: t.windowId, index: t.index, boot })));
+  await chrome.storage.local.set({ snoozed });
+  await closeIds(tabs.map(t => t.id));
+  await track('snoozed', tabs.length);
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab || !tab.url) return;
-  if (info.menuItemId === 'tr-todo') {
-    const { todos = [] } = await chrome.storage.local.get('todos');
-    todos.unshift({ id: uid(), title: tab.title || tab.url, url: tab.url, note: '', createdAt: Date.now(), remindAt: null, done: false });
-    await chrome.storage.local.set({ todos });
-    await track('todo');
-    flashBadge('✓');
-  }
-  if (info.menuItemId === 'tr-park') {
-    const { sessions = [] } = await chrome.storage.local.get('sessions');
-    const today = new Date().toISOString().slice(0, 10);
-    const id = 'quick-' + today;
-    let s = sessions.find(x => x.id === id);
-    if (!s) {
-      s = { id, name: 'Quick-parked ' + new Date().toLocaleDateString(), createdAt: Date.now(), tabs: [] };
-      sessions.unshift(s);
-    }
-    let { bootId } = await chrome.storage.session.get('bootId');
-    if (!bootId) { bootId = uid(); await chrome.storage.session.set({ bootId }); }
-    s.tabs.push({ title: tab.title || tab.url, url: tab.url, parkedAt: Date.now(), windowId: tab.windowId, index: tab.index, boot: bootId });
-    await chrome.storage.local.set({ sessions });
-    await chrome.tabs.remove(tab.id);
-    await track('parked');
+  const tabs = await menuTabs(info, tab);
+  if (!tabs.length) return;
+  switch (info.menuItemId) {
+    case 'tr-todo': await todoFromMenu(tabs, false); return flashBadge('✓');
+    case 'tr-park': return parkFromMenu(tabs);
+    case 'tr-strip-park': await parkFromMenu(tabs); return flashBadge('−' + tabs.length);
+    case 'tr-strip-todo': await todoFromMenu(tabs, true); return flashBadge('✓');
+    case 'tr-strip-snooze': await snoozeFromMenu(tabs); return flashBadge('zz');
   }
 });
 // Recovery counters (same shape as dashboard.js track): daily aggregates only, no URLs.

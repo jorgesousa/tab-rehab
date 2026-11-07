@@ -79,7 +79,8 @@ Daily aggregate counts (opened, closed, parked, snoozed, to-do, bookmarked, rest
 2. Context resurfacing: "you parked 3 tabs from this site, want them back?"
 3. Local AI grouping by task, plus a one-line summary saved at close time (Chrome's built-in on-device model).
 4. Auto-archive mode (Arc-style) as an opt-in.
-5. Publish to the Chrome Web Store.
+5. AI roasts for the Hall of Shame: when Chrome's built-in on-device model (Gemini Nano, Prompt API) is available, write a personal roast for the podium tabs from the title ("Deep work in a shallow world", ignored 29 days → "Ironic, given the title."). Runs on the device, no network, no keys. Falls back silently to the category roasts when the model isn't there (other browsers, low disk, older machines).
+6. Publish to the Chrome Web Store.
 
 ## Pitfalls to avoid
 

@@ -90,10 +90,10 @@ async function track(kind, n = 1) {
   await save({ recovery });
 }
 
-let toastTimer;
+let toastTimer, toastNote = ''; // toastNote: one-off prefix for the next toast (e.g. "Dethroned.")
 function toast(msg, btnLabel, fn, link) {
   const el = $('#toast');
-  $('#toast-msg').textContent = msg;
+  $('#toast-msg').textContent = (toastNote ? toastNote + ' ' : '') + msg; toastNote = '';
   const l = $('#toast-link'); l.hidden = !link;
   if (link) { l.textContent = link.label; l.href = '#' + link.view; l.onclick = () => { el.hidden = true; }; }
   const b = $('#toast-btn');
@@ -156,13 +156,21 @@ async function restoreItems(items) {
 }
 
 // ---------- actions ----------
+// Tabs can vanish between render and click (closed in Chrome a moment ago). Chrome rejects a whole
+// batch if one id is gone, so fall back to one by one and quietly skip the missing ones.
+async function removeTabs(ids) {
+  ids = [].concat(ids).filter(id => id > 0);
+  if (!ids.length) return;
+  try { await chrome.tabs.remove(ids); }
+  catch { await Promise.all(ids.map(id => chrome.tabs.remove(id).catch(() => {}))); }
+}
 async function closeTabs(tabs, verb = 'Closed') {
   if (!tabs.length) return;
   const boot = await bootId();
   const entries = tabs.filter(t => isJunk(t) !== 'empty tab').map(t => ({ title: t.title, url: t.url, closedAt: Date.now(), windowId: t.windowId, index: t.index, boot }));
   const { closedLog = [] } = await chrome.storage.local.get('closedLog');
   await save({ closedLog: [...entries, ...closedLog].slice(0, 1000) });
-  await chrome.tabs.remove(tabs.map(t => t.id));
+  await removeTabs(tabs.map(t => t.id));
   await track('closed', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
   toast(`${verb} ${tabs.length} tab${tabs.length > 1 ? 's' : ''}. Nothing is lost.`, 'Undo', async () => {
@@ -182,7 +190,7 @@ async function parkTabs(tabs, name) {
   };
   const { sessions = [] } = await chrome.storage.local.get('sessions');
   await save({ sessions: [session, ...sessions] });
-  await chrome.tabs.remove(tabs.map(t => t.id));
+  await removeTabs(tabs.map(t => t.id));
   await track('parked', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
   toast(`Parked ${tabs.length} tab${tabs.length > 1 ? 's' : ''} in "${session.name}".`, 'Undo', async () => {
@@ -207,7 +215,7 @@ async function moveWindows(fromIds, toId, verb) {
     const ts = (await chrome.tabs.query({ windowId: id })).sort((a, b) => a.index - b.index);
     if (!ts.length) continue;
     snapshot.push(ts.map(t => ({ id: t.id, pinned: t.pinned })));
-    await chrome.tabs.move(ts.map(t => t.id), { windowId: toId, index: -1 });
+    await chrome.tabs.move(ts.map(t => t.id), { windowId: toId, index: -1 }).catch(async () => { for (const t of ts) await chrome.tabs.move(t.id, { windowId: toId, index: -1 }).catch(() => {}); });
     for (const t of ts) if (t.pinned) await chrome.tabs.update(t.id, { pinned: true }).catch(() => {});
   }
   const n = snapshot.reduce((a, w) => a + w.length, 0);
@@ -236,15 +244,16 @@ async function addTodosFromTabs(tabs) {
   const { todos = [] } = await chrome.storage.local.get('todos');
   const items = tabs.map(t => ({ id: uid(), kind: 'do', title: t.title || t.url, url: t.url, note: '', createdAt: Date.now(), remindAt: null, done: false }));
   await save({ todos: [...items, ...todos] });
-  await chrome.tabs.remove(tabs.map(t => t.id));
+  await removeTabs(tabs.map(t => t.id));
   await track('todo', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
   toast(`${tabs.length} tab${tabs.length > 1 ? 's are' : ' is'} now to-dos. Add notes and reminders in the To-dos view.`);
 }
 
 async function focusTab(t) {
-  await chrome.tabs.update(t.id, { active: true });
-  await chrome.windows.update(t.windowId, { focused: true });
+  const ok = await chrome.tabs.update(t.id, { active: true }).catch(() => null);
+  if (!ok) { toast('That tab is already gone. Someone beat you to it.'); return reload(); }
+  await chrome.windows.update(t.windowId, { focused: true }).catch(() => {});
 }
 
 // ---------- dialogs ----------
@@ -279,7 +288,7 @@ $('#todo-dlg').addEventListener('close', async () => {
   } else {
     await save({ todos: [{ id: uid(), createdAt: Date.now(), done: false, ...data }, ...todos] });
     if (todoCtx.tab && f.closeTab.checked) {
-      await chrome.tabs.remove(todoCtx.tab.id).catch(() => {});
+      await removeTabs(todoCtx.tab.id);
       await track('todo');
       S.rehabDone += S.view === 'rehab' ? 1 : 0;
     }
@@ -302,7 +311,7 @@ $('#snooze-dlg').addEventListener('close', async () => {
   const { snoozed = [] } = await chrome.storage.local.get('snoozed');
   const items = await Promise.all(snoozeCtx.map(async t => ({ id: uid(), title: t.title || t.url, url: t.url, wakeAt, snoozedAt: Date.now(), ...(await origin(t)) })));
   await save({ snoozed: [...snoozed, ...items] });
-  await chrome.tabs.remove(snoozeCtx.map(t => t.id)).catch(() => {});
+  await removeTabs(snoozeCtx.map(t => t.id));
   await track('snoozed', snoozeCtx.length);
   snoozeCtx.forEach(t => S.sel.delete(t.id));
   if (S.view === 'rehab') S.rehabDone += snoozeCtx.length;
@@ -365,7 +374,7 @@ $('#bm-dlg').addEventListener('close', async () => {
     if (bmCtx.session) await save({ sessions: S.sessions.filter(s => s.id !== bmCtx.session.id) });
     else {
       const real = bmCtx.tabs.filter(t => t.id > 0);
-      if (real.length) { await chrome.tabs.remove(real.map(t => t.id)).catch(() => {}); await track('bookmarked', real.length); }
+      if (real.length) { await removeTabs(real.map(t => t.id)); await track('bookmarked', real.length); }
       bmCtx.tabs.forEach(t => S.sel.delete(t.id));
       if (S.view === 'rehab') S.rehabDone += bmCtx.tabs.length;
     }
@@ -461,7 +470,55 @@ function renderStale(tabs, dup) {
     ${stale.length ? `<button data-a="rehab">Review one by one</button><button data-a="park-stale" class="primary">Park all ${stale.length}</button>` : ''}
     <div class="sub">If you haven't looked at a tab in ${S.settings.staleDays} days, it isn't helping you. Park them: they stay searchable here and can be restored any time. Pinned and playing tabs are never included.</div>`;
   if (!stale.length) return [tb, empty('No stale tabs', `Everything has been opened in the last ${S.settings.staleDays} days.`)];
-  return [tb, groupBlock('stale', `Untouched for ${S.settings.staleDays}+ days, oldest first`, stale, dup.ids)];
+  const seen = new Set();
+  const shame = S.q ? [] : stale.filter(t => !seen.has(t.url) && seen.add(t.url)).slice(0, 5);
+  const rest = stale.filter(t => !shame.includes(t));
+  let html = shame.length ? hallOfShame(shame) : '';
+  if (rest.length) html += (shame.length ? `<h3 class="sec">Everything else untouched for ${S.settings.staleDays}+ days</h3>` : '') +
+    groupBlock('stale', `Untouched for ${S.settings.staleDays}+ days, oldest first`, rest, dup.ids);
+  return [tb, html];
+}
+
+// ---------- Hall of Shame: the longest-ignored open tabs, ranked ----------
+const MEDALS = ['🥇', '🥈', '🥉'];
+const SHAME = [
+  [/course|tutorial|lesson|learn|udemy|coursera|bootcamp|masterclass|guide to|beginner/i,
+    ['Still on Day 1.', 'The course is self-paced. So is the ignoring.', 'Enrolled. Emotionally.', 'Lesson 1 is still waiting for you.']],
+  [/cart|checkout|basket|buy|shop|store|amazon|ebay|etsy|price|deal|\bsale\b/i,
+    ['Still in the cart. Still not bought. Still deciding.', 'The price changed twice since you opened this.', 'Window shopping, but the window never closes.']],
+  [/flight|hotel|airbnb|booking|trip|travel|itinerar|vacation|holiday/i,
+    ['The trip happened. Or didn\'t.', 'You could have been there and back by now.', 'Planning is half the fun. This is the other half.']],
+  [/youtube|vimeo|twitch|netflix|watch|video|podcast|episode/i,
+    ['Watch later. Much later.', 'It\'s shorter than the time it\'s been open.', 'Paused at 0:00, forever.']],
+  [/github|stackoverflow|docs\.|documentation|api reference|readme/i,
+    ['The bug fixed itself. Or you gave up.', 'Bookmarked by neglect.', 'Open "for reference". Never referenced.']],
+  [/article|blog|medium|substack|news|read|essay|how to|why |ways to|tips/i,
+    ['Saved for a quiet moment. Still waiting for one.', 'A 6-minute read, open for weeks.', 'You\'ll read it right after the other 40.']]
+];
+const SHAME_ANY = ['Part of the furniture now.', 'It pays no rent.', 'At this point it\'s a roommate.', 'Loyal. Ignored, but loyal.', 'Keeping it "just in case". The case never came.'];
+function shameRoast(t) {
+  const txt = (t.title || '') + ' ' + (t.url || '');
+  const seed = [...(t.url || '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const cat = SHAME.find(([re]) => re.test(txt));
+  const pool = cat ? cat[1] : SHAME_ANY;
+  return pool[seed % pool.length];
+}
+function ignoredFor(t) {
+  const d = Math.floor((Date.now() - t.lastAccessed) / DAY);
+  return d >= 1 ? `${d} day${d > 1 ? 's' : ''}` : 'a while';
+}
+function hallOfShame(tabs) {
+  return `<h3 class="sec">🏆 Hall of Shame · the tabs you've ignored the longest</h3><div class="group hall"><div class="rows">
+    ${tabs.map((t, i) => `<div class="row hall-row" data-tab="${t.id}" data-rank="${i}">
+      <span class="rank">${MEDALS[i] || i + 1}</span>
+      <img class="fav" src="${fav(t.url)}" alt="">
+      <div class="main" data-a="go" title="${esc(t.url)}"><div class="title">${esc(t.title || t.url)}</div>
+        <div class="meta">${esc(host(t.url))} · <i>Ignored for ${ignoredFor(t)}. ${esc(shameRoast(t))}</i></div></div>
+      <div class="hall-acts"><button data-a="go">Fine, I'll read it</button><button data-a="hs-park">Park</button><button data-a="hs-close" class="danger">Let it go</button></div>
+    </div>`).join('')}</div></div>`;
+}
+function dethrone(tab, el) {
+  if (el.closest('.hall-row')?.dataset.rank === '0') toastNote = `Dethroned. It lasted ${ignoredFor(tab)} at the top.`;
 }
 
 function renderWins(tabs, dup) {
@@ -706,7 +763,7 @@ function renderRecovery() {
   const overdue = todos.filter(x => !x.done && x.remindAt && x.remindAt < Date.now()).length, open = todos.length - done;
   const q3 = `<div class="rcard"><div class="rq">Did I do the things I kept tabs open for?</div>
     ${todos.length ? `<div class="rbig">${todos.length} tab${todos.length !== 1 ? 's' : ''} became to-dos. ${done} done${overdue ? `, ${overdue} overdue` : ''}.</div>
-    <div class="muted">${done && done >= open ? "Promises kept. Turns out you didn't need 40 open tabs to remember things. You needed a list." : open ? `${open} still open. You'll ignore them just like the tabs, but at least they don't eat your RAM.` : ''}</div>
+    <div class="muted">${done && done >= open ? "Promises kept. Turns out you didn't need 40 open tabs to remember things. You needed a list." : open ? (done ? `${open} still open. You'll ignore them just like the tabs, but at least they don't eat your RAM.` : `${open} still open, 0 done. Bold strategy. At least they don't eat your RAM.`) : ''}</div>
     ${overdue ? `<div class="ract"><a class="btn" href="#todos">Review ${overdue} overdue to-do${overdue > 1 ? 's' : ''}</a></div>` : ''}`
     : `<div class="rbig">No to-dos yet.</div><div class="muted">Somewhere a tab is open "so I don't forget". Spoiler: you forgot. Turn it into a to-do (T in a Rehab session) and this card keeps score.</div>`}
   </div>`;
@@ -718,10 +775,10 @@ function renderRecovery() {
   const rate = parkedEver ? Math.round((reopened / parkedEver) * 100) : 0;
   const q5 = `<div class="rcard"><div class="rq">What's still hiding?</div>
     ${old.length ? `<div class="rbig">${old.length} parked tab${old.length !== 1 ? 's are' : ' is'} older than 30 days.</div>
-    <div class="muted">${parkedEver ? `You've reopened ${rate}% of everything you ever parked. The rest are just paying rent. ` : ''}A parked list nobody visits is a graveyard with better branding.</div>
+    <div class="muted">${parkedEver ? (reopened ? `You've reopened ${rate}% of everything you ever parked. The rest are just paying rent. ` : "You've never reopened a single parked tab. They're just paying rent. ") : ''}A parked list nobody visits is a graveyard with better branding.</div>
     <div class="ract"><button class="primary" data-a="grave-go">Let them go</button><button data-a="grave-bm">Save as bookmarks first</button></div>`
-    : `<div class="rbig">No graveyard. ${parkedAll.length ? `All ${parkedAll.length} parked tab${parkedAll.length !== 1 ? 's are' : ' is'} under a month old. Suspiciously well-behaved.` : 'Nothing parked, nothing buried.'}</div>
-    <div class="muted">${parkedEver ? `You've reopened ${rate}% of everything you ever parked.` : 'Parked tabs that sit for more than 30 days get dug up here.'}</div>`}
+    : `<div class="rbig">${parkedAll.length ? 'No graveyard. Suspiciously well-behaved.' : 'Nothing parked, nothing buried.'}</div>
+    <div class="muted">${parkedAll.length ? `All ${parkedAll.length} parked tab${parkedAll.length !== 1 ? 's are' : ' is'} under a month old. ` : ''}${parkedEver ? (reopened ? `You've reopened ${rate}% of everything you ever parked.` : "You've never reopened a single one. Telling.") : 'Parked tabs that sit for more than 30 days get dug up here.'}</div>`}
   </div>`;
   return [tb, `<div class="recovery">${q1}${q2}${q3}${q5}</div>`];
 }
@@ -790,6 +847,8 @@ async function onAction(e) {
     case 'park': return parkTabs([tab]);
     case 'bookmark': return tab && openBmDlg({ tabs: [tab], folder: '' });
     case 'close': return closeTabs([tab]);
+    case 'hs-park': dethrone(tab, el); return parkTabs([tab], 'Hall of Shame · ' + new Date().toLocaleDateString());
+    case 'hs-close': dethrone(tab, el); return closeTabs([tab], 'Let go of');
     case 'toggle': { const k = groupEl.dataset.key; S.collapsed.has(k) ? S.collapsed.delete(k) : S.collapsed.add(k); return render(); }
     case 'gsel': { const ts = gtabs(); const all = ts.every(t => S.sel.has(t.id)); ts.forEach(t => all ? S.sel.delete(t.id) : S.sel.add(t.id)); return render(); }
     case 'gbm': { const label = groupEl.querySelector('b').textContent; return openBmDlg({ tabs: gtabs(), folder: label }); }
