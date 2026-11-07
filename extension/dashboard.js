@@ -91,9 +91,11 @@ async function track(kind, n = 1) {
 }
 
 let toastTimer;
-function toast(msg, btnLabel, fn) {
+function toast(msg, btnLabel, fn, link) {
   const el = $('#toast');
   $('#toast-msg').textContent = msg;
+  const l = $('#toast-link'); l.hidden = !link;
+  if (link) { l.textContent = link.label; l.href = '#' + link.view; l.onclick = () => { el.hidden = true; }; }
   const b = $('#toast-btn');
   b.hidden = !btnLabel; b.textContent = btnLabel || '';
   b.onclick = () => { el.hidden = true; fn && fn(); };
@@ -106,11 +108,11 @@ function toast(msg, btnLabel, fn) {
 async function load() {
   const [tabs, st] = await Promise.all([
     chrome.tabs.query({}),
-    chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'closedLog', 'settings', 'stats', 'recovery', 'whatsNew'])
+    chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'closedLog', 'settings', 'stats', 'recovery', 'whatsNew', 'best'])
   ]);
   S.tabs = tabs.filter(t => !(t.url || t.pendingUrl || '').startsWith(SELF));
   S.sessions = st.sessions || []; S.todos = st.todos || []; S.snoozed = st.snoozed || [];
-  S.closedLog = st.closedLog || []; S.stats = st.stats || {}; S.recovery = st.recovery || {}; S.whatsNew = st.whatsNew || null;
+  S.closedLog = st.closedLog || []; S.stats = st.stats || {}; S.recovery = st.recovery || {}; S.whatsNew = st.whatsNew || null; S.best = st.best ?? null;
   S.settings = { staleDays: 7, nudge: true, budget: 30, ...(st.settings || {}) };
   S.loaded = true;
   const ids = new Set(S.tabs.map(t => t.id));
@@ -163,11 +165,11 @@ async function closeTabs(tabs, verb = 'Closed') {
   await chrome.tabs.remove(tabs.map(t => t.id));
   await track('closed', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
-  toast(`${verb} ${tabs.length} tab${tabs.length > 1 ? 's' : ''}. Nothing is lost: see "Recently closed".`, 'Undo', async () => {
+  toast(`${verb} ${tabs.length} tab${tabs.length > 1 ? 's' : ''}. Nothing is lost.`, 'Undo', async () => {
     await restoreItems(entries); await track('undone', entries.length);
     const { closedLog: cl = [] } = await chrome.storage.local.get('closedLog');
     await save({ closedLog: cl.filter(x => !entries.some(e => e.url === x.url && e.closedAt === x.closedAt)) });
-  });
+  }, { label: 'Recently closed', view: 'closed' });
 }
 
 async function parkTabs(tabs, name) {
@@ -449,13 +451,21 @@ function renderParked() {
         <div class="rows">${s.shown.map(t => savedRow(t, `data-i="${t.i}"`, 'parked ' + ago(t.parkedAt || s.createdAt))).join('')}</div>
       </div>`).join('');
   }
-  const closed = S.closedLog.filter(c => match(c.title, c.url)).slice(0, 100);
-  if (closed.length) {
-    html += `<h3 class="sec">Recently closed from Tab Rehab <button class="link" data-a="clear-closed">clear</button></h3><div class="group ${S.collapsed.has('closed') ? 'collapsed' : ''}" data-key="closed">
-      <div class="ghead"><button class="caret" data-a="toggle">${S.collapsed.has('closed') ? '▸' : '▾'}</button><b>Your safety net</b><span class="n">last ${closed.length}</span></div>
-      <div class="rows">${closed.map((c, i) => savedRow(c, `data-ci="${i}"`, 'closed ' + ago(c.closedAt))).join('')}</div></div>`;
-  }
   if (!html) html = empty('Nothing parked yet', 'Use "Park" on any tab or group to save it and close it. Nothing gets lost.');
+  return [tb, html];
+}
+
+// Your safety net: everything Tab Rehab closed for you, newest first, grouped by day.
+function renderClosed() {
+  const all = S.closedLog, shown = all.filter(c => match(c.title, c.url));
+  const t = (S.recovery.totals || {}), back = (t.restored || 0) + (t.undone || 0);
+  const tb = `<h2>Recently closed</h2>${all.length ? '<button data-a="clear-closed">Clear the list</button>' : ''}
+    <div class="sub">Your safety net. Every tab Tab Rehab closes lands here first, so letting go is never a gamble. Click one to reopen it where it was.${back ? ` So far you've needed ${back} back.` : ''}</div>`;
+  if (!shown.length) return [tb, empty(S.q ? 'No matching tabs' : 'Nothing closed yet', S.q ? 'Try another search.' : 'When Tab Rehab closes a tab, it waits here in case you change your mind.')];
+  const day = ts => { const d = new Date(ts), now = new Date(); if (d.toDateString() === now.toDateString()) return 'Today'; if (new Date(now - DAY).toDateString() === d.toDateString()) return 'Yesterday'; return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' }); };
+  const by = new Map();
+  shown.forEach(c => { const k = day(c.closedAt); if (!by.has(k)) by.set(k, []); by.get(k).push(c); });
+  const html = [...by].map(([k, cs]) => `<h3 class="sec">${esc(k)} · ${cs.length}</h3><div class="group"><div class="rows">${cs.map(c => savedRow(c, `data-ci="${all.indexOf(c)}"`, 'closed ' + ago(c.closedAt))).join('')}</div></div>`).join('');
   return [tb, html];
 }
 
@@ -539,24 +549,17 @@ function renderHealth() {
 }
 
 // ---------- Relapse alert settings (logic lives in background.js) ----------
-const ALERT_DEFAULTS = { enabled: true, adapt: true, quietFrom: '22:00', quietTo: '08:00', weekendQuiet: false, pausedUntil: 0 };
+const ALERT_DEFAULTS = { enabled: true, quietFrom: '22:00', quietTo: '08:00', weekendQuiet: false, pausedUntil: 0 };
 const alerts = () => ({ ...ALERT_DEFAULTS, ...(S.settings.alerts || {}) });
-function usualCount() {
-  const today = new Date().toLocaleDateString('sv');
-  const vals = Object.keys(S.stats).sort().filter(d => d !== today).slice(-14).map(d => S.stats[d]).sort((a, b) => a - b);
-  if (vals.length < 5) return null;
-  const m = vals.length >> 1;
-  return vals.length % 2 ? vals[m] : Math.round((vals[m - 1] + vals[m]) / 2);
-}
 function settingRow(title, desc, control, dim = false) {
   return `<label class="row srow ${dim ? 'dim' : ''}"><div class="main"><div class="title">${title}</div><div class="meta">${desc}</div></div><div class="sctl">${control}</div></label>`;
 }
 const toggle = (attr, on) => `<input type="checkbox" class="switch" ${attr} ${on ? 'checked' : ''}>`;
 function alertsSection() {
-  const a = alerts(), usual = usualCount(), budget = S.settings.budget;
+  const a = alerts(), best = S.best, budget = S.settings.budget;
   const paused = Date.now() < a.pausedUntil;
-  const threshold = a.adapt && usual != null ? Math.max(budget, usual + 15) : budget + 15;
-  const status = !a.enabled ? 'Off. Your badge still changes colour.' : paused ? `Paused until ${when(a.pausedUntil)}.` : `On. Next nudge at ${threshold} tabs, at most once a day.`;
+  const threshold = best == null ? budget + 15 : Math.max(best + 15, budget + 1);
+  const status = !a.enabled ? 'Off. Your badge still changes colour.' : paused ? `Paused until ${when(a.pausedUntil)}.` : `On. Your best is ${best ?? S.tabs.length} tabs, so the next nudge comes at ${threshold}.`;
   const off = !a.enabled;
   return `<h3 class="sec">Relapse alerts</h3>
     <div class="group"><div class="ghead"><b>${status}</b>
@@ -564,7 +567,7 @@ function alertsSection() {
       <button data-a="al-preview">Preview the nudge</button></div>
     <div class="rows">
       ${settingRow('Relapse alerts', "One gentle notification when you're collecting again. Never shaming, never twice a day.", toggle('data-al="enabled"', a.enabled))}
-      ${settingRow('Adapt to my usual', usual != null ? `Nudge when you're 15+ above your 2-week median (yours: ${usual}), not at a fixed number.` : 'Needs 5 days of history. Until then: 15 over your budget.', toggle('data-al="adapt"', a.adapt), off)}
+      ${settingRow('How it decides', `Only when you're climbing back up: 15+ tabs above your best (the lowest you've held over the last two weeks). Your best only goes down. Coming down from a big number never triggers a nudge.`, '', off)}
       ${settingRow('Quiet hours', 'No nudges in this window.', `<input type="time" data-al="quietFrom" value="${a.quietFrom}"> <span class="muted">to</span> <input type="time" data-al="quietTo" value="${a.quietTo}">`, off)}
       ${settingRow('All weekend', 'Weekends are for recovery too.', toggle('data-al="weekendQuiet"', a.weekendQuiet), off)}
     </div></div>`;
@@ -583,9 +586,8 @@ function renderSettings() {
   const tb = `<h2>Settings</h2><div class="sub">Everything here stays on this device. What happens in rehab stays in rehab.</div>`;
   const sel = (a, vals, cur, fmt = v => v) => `<select data-a="${a}">${vals.map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${fmt(v)}</option>`).join('')}</select>`;
   const tidy = `<h3 class="sec">Tidying</h3><div class="group"><div class="rows">
-    ${settingRow('Tab budget', 'Your badge turns amber above this, and Recovery counts your days under it.', sel('budget', [10, 20, 30, 40, 50, 75, 100], st.budget, v => v + ' tabs'))}
-    ${settingRow('Stale after', "Tabs you haven't opened in this long show up in Stale.", sel('staledays', [1, 3, 7, 14, 30], st.staleDays, d => d + ' day' + (d > 1 ? 's' : '')))}
-    ${settingRow('Daily stale reminder', 'One notification when 5 or more tabs go stale.', toggle('data-a="nudge"', st.nudge !== false))}
+    ${settingRow('Tab budget', 'Your badge is green under this, amber above it, red at twice. Recovery counts your days under it.', sel('budget', [10, 20, 30, 40, 50, 75, 100], st.budget, v => v + ' tabs'))}
+    ${settingRow('Daily stale reminder', `One notification when 5 or more tabs go untouched for ${st.staleDays}+ days (change it in <a href="#stale">Stale</a>).`, toggle('data-a="nudge"', st.nudge !== false))}
   </div></div>`;
   const data = `<h3 class="sec">Your data</h3><div class="group"><div class="rows">
     ${settingRow('Backup', 'Open tabs, parked lists, snoozes, to-dos and your Recovery history, as one JSON file.', '<button data-a="do-export">Export</button>')}
@@ -636,6 +638,7 @@ function renderRecovery() {
   const q2 = `<div class="rcard"><div class="rq">Was it safe to let go?</div>
     ${letGo ? `<div class="rbig">You've let go of ${letGo} tab${letGo !== 1 ? 's' : ''}. You needed ${back} back.</div>
     <div class="muted">${parts}. That's ${pct}% you ever reopened${back <= letGo * 0.05 ? ': the fear of losing them was louder than the need.' : '.'}</div>
+    <div class="ract"><a href="#closed">See what you let go →</a></div>
     ${back <= letGo * 0.05 && letGo >= 20 && S.settings.staleDays > 5 ? `<div class="ract"><button data-a="lower-stale">Lower your stale limit to 5 days?</button></div>` : ''}`
     : `<div class="rbig">Nothing let go yet.</div><div class="muted">Close, park, snooze or bookmark a few tabs. This card will show how many you ever needed back. (Spoiler: almost none.)</div>`}
   </div>`;
@@ -645,7 +648,7 @@ function renderRecovery() {
 
 // ---------- What's new (shown once after an update, never as a pop-up) ----------
 const WHATS_NEW = {
-  '0.4.0': { title: 'New: Relapse alerts', text: 'One gentle nudge when you start collecting again, measured against your own usual. Never in quiet hours, easy to pause.', view: 'settings', cta: 'Set them up' },
+  '0.4.0': { title: 'New: Relapse alerts', text: 'One gentle nudge when you start climbing back up, measured against your own best. Never in quiet hours, easy to pause.', view: 'settings', cta: 'Set them up' },
   '0.3.0': { title: 'New: Recovery', text: 'See how far you\'ve come, and how many of the tabs you let go you ever needed back. (Spoiler: almost none.)', view: 'recovery', cta: 'Open Recovery' }
 };
 function renderWhatsNew() {
@@ -671,10 +674,11 @@ function render() {
   $('#c-wins').textContent = wins || '';
   $('#c-parked').textContent = parked || '';
   $('#c-todos').textContent = S.todos.filter(t => !t.done).length || '';
+  $('#c-closed').textContent = S.closedLog.length || '';
   document.querySelectorAll('#nav a, .nav-foot a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
   renderHealth();
   renderWhatsNew();
-  const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, rehab: renderRehab, recovery: renderRecovery, settings: renderSettings }[S.view] || renderTabs;
+  const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, closed: renderClosed, rehab: renderRehab, recovery: renderRecovery, settings: renderSettings }[S.view] || renderTabs;
   const [tb, html] = fn(tabs, dup);
   $('#toolbar').innerHTML = tb;
   const scroll = window.scrollY;
@@ -731,7 +735,7 @@ async function onAction(e) {
         return save({ snoozed: S.snoozed.filter(x => x.id !== s.id) });
       }
       if (row.dataset.ci != null) {
-        const c = S.closedLog.filter(x => match(x.title, x.url))[+row.dataset.ci];
+        const c = S.closedLog[+row.dataset.ci];
         if (a === 'restore') { await restoreItems([c]); await track('restored'); }
         return save({ closedLog: S.closedLog.filter(x => x !== c) });
       }
@@ -828,7 +832,7 @@ document.addEventListener('keydown', e => {
 
 function route() {
   const v = location.hash.slice(1);
-  S.view = ['tabs', 'stale', 'wins', 'parked', 'todos', 'rehab', 'recovery', 'settings'].includes(v) ? v : 'tabs';
+  S.view = ['tabs', 'stale', 'wins', 'parked', 'todos', 'closed', 'rehab', 'recovery', 'settings'].includes(v) ? v : 'tabs';
   if (S.view === 'rehab') { S.rehabSkip.clear(); S.rehabDone = 0; S.rehabStart = 0; }
   window.scrollTo(0, 0);
   render();

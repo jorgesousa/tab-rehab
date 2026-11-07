@@ -25,20 +25,25 @@ function scheduleBadge() {
 async function updateBadge() {
   const n = (await chrome.tabs.query({})).length;
   await chrome.action.setBadgeText({ text: n > 999 ? '999+' : String(n) });
-  const { settings = {}, stats: st0 = {} } = await chrome.storage.local.get(['settings', 'stats']);
-  const r = relapseLevel(n, settings, st0);
-  const color = r.level === 'ok' ? '#2e9e5b' : r.level === 'over' ? '#d98a00' : '#d93025';
-  await chrome.action.setBadgeBackgroundColor({ color });
-  if (r.level === 'relapse') maybeNudge(n, r, settings);
-  // daily health snapshot (keeps 60 days)
   const day = new Date().toLocaleDateString('sv'); // YYYY-MM-DD local
-  const { stats = {} } = await chrome.storage.local.get('stats');
-  if (stats[day] !== n) {
-    stats[day] = n;
-    const keys = Object.keys(stats).sort();
-    while (keys.length > 60) delete stats[keys.shift()];
-    await chrome.storage.local.set({ stats });
-  }
+  const st = await chrome.storage.local.get(['settings', 'stats', 'lows', 'best']);
+  const settings = st.settings || {}, stats = st.stats || {}, lows = st.lows || {};
+  // daily snapshots (60 days): last count of the day, and the lowest count of the day
+  const trim = o => { const k = Object.keys(o).sort(); while (k.length > 60) delete o[k.shift()]; };
+  const patch = {};
+  if (stats[day] !== n) { stats[day] = n; trim(stats); patch.stats = stats; }
+  if (lows[day] == null || n < lows[day]) { lows[day] = n; trim(lows); patch.lows = lows; }
+  // "Your best": the lowest 14-day median of daily lows you've ever reached. It only goes down,
+  // so progress is locked in and a slow slide back up still counts as a relapse.
+  const cand = bestCandidate(lows);
+  const best = st.best == null ? cand : Math.min(st.best, cand);
+  if (best !== st.best) patch.best = best;
+  if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+  // Badge colour depends only on your budget: green under it, amber over, red at twice.
+  const budget = settings.budget || 30;
+  await chrome.action.setBadgeBackgroundColor({ color: n <= budget ? '#2e9e5b' : n < budget * 2 ? '#d98a00' : '#d93025' });
+  const r = relapseState(n, settings, best);
+  if (r.nudge) maybeNudge(n, r, settings);
 }
 chrome.tabs.onCreated.addListener(scheduleBadge);
 chrome.tabs.onRemoved.addListener(scheduleBadge);
@@ -46,19 +51,20 @@ chrome.tabs.onRemoved.addListener(scheduleBadge);
 // ---------- Relapse alerts ----------
 // Gentle by design: measured against your own 2-week median, at most one nudge a day
 // (plus one "Later today" retry), never in quiet hours, and easy to pause.
-const ALERT_DEFAULTS = { enabled: true, adapt: true, quietFrom: '22:00', quietTo: '08:00', weekendQuiet: false, pausedUntil: 0 };
+const ALERT_DEFAULTS = { enabled: true, quietFrom: '22:00', quietTo: '08:00', weekendQuiet: false, pausedUntil: 0 };
 const alertSettings = settings => ({ ...ALERT_DEFAULTS, ...(settings.alerts || {}) });
-function usualCount(stats) {
-  const today = new Date().toLocaleDateString('sv');
-  const vals = Object.keys(stats).sort().filter(d => d !== today).slice(-14).map(d => stats[d]).sort((a, b) => a - b);
-  if (vals.length < 5) return null; // not enough history yet
+function bestCandidate(lows) {
+  const vals = Object.keys(lows).sort().slice(-14).map(d => lows[d]).sort((a, b) => a - b);
+  if (!vals.length) return null;
   const m = vals.length >> 1;
   return vals.length % 2 ? vals[m] : Math.round((vals[m - 1] + vals[m]) / 2);
 }
-function relapseLevel(n, settings, stats) {
-  const budget = settings.budget || 30, a = alertSettings(settings), usual = usualCount(stats);
-  const threshold = a.adapt && usual != null ? Math.max(budget, usual + 15) : budget + 15;
-  return { level: n <= budget ? 'ok' : n < threshold ? 'over' : 'relapse', budget, usual: a.adapt ? usual : null, threshold };
+// Only nudge when you're climbing back up: 15+ above your best, and over budget.
+// Over budget but coming down? No nudge: the red badge already says it, and progress deserves quiet.
+function relapseState(n, settings, best) {
+  const budget = settings.budget || 30;
+  const threshold = best == null ? budget + 15 : Math.max(best + 15, budget + 1);
+  return { nudge: n >= threshold, budget, best, threshold };
 }
 function isQuiet(a, d = new Date()) {
   if (a.weekendQuiet && (d.getDay() === 0 || d.getDay() === 6)) return true;
@@ -68,11 +74,11 @@ function isQuiet(a, d = new Date()) {
   return from === to ? false : from < to ? mins >= from && mins < to : mins >= from || mins < to;
 }
 function nudgeText(n, r) {
-  const back = r.usual != null ? `${n} tabs, ${n - r.usual} above your usual.` : `${n} tabs, ${n - r.budget} over your budget of ${r.budget}.`;
-  return { title: "You're collecting again.", message: `${back} A 5-minute Rehab session gets you back under ${r.budget}.` };
+  return { title: "You're collecting again.", message: `${n} tabs, ${n - r.best} above your best (${r.best}). A 5-minute Rehab session gets you back there.` };
 }
-function showNudge(n, r) {
+function showNudge(n, r, preview = false) {
   const t = nudgeText(n, r);
+  if (preview) t.title = 'Preview · ' + t.title;
   // Same id = Chrome silently updates the old one; clear first so it pops up again.
   chrome.notifications.clear('relapse', () => chrome.notifications.create('relapse', {
     type: 'basic', iconUrl: 'icons/icon128.png', title: t.title, message: t.message, priority: 1,
@@ -99,17 +105,19 @@ async function laterToday() {
 }
 async function recheckRelapse() {
   const n = (await chrome.tabs.query({})).length;
-  const { settings = {}, stats = {} } = await chrome.storage.local.get(['settings', 'stats']);
-  const r = relapseLevel(n, settings, stats);
-  if (r.level === 'relapse') maybeNudge(n, r, settings);
+  const { settings = {}, best = null } = await chrome.storage.local.get(['settings', 'best']);
+  const r = relapseState(n, settings, best);
+  if (r.nudge) maybeNudge(n, r, settings);
 }
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg && msg.type === 'relapse-preview') {
     (async () => {
       const n = (await chrome.tabs.query({})).length;
-      const { settings = {}, stats = {} } = await chrome.storage.local.get(['settings', 'stats']);
-      const r = relapseLevel(n, settings, stats);
-      showNudge(Math.max(n, r.threshold), r);
+      const { settings = {}, best = null } = await chrome.storage.local.get(['settings', 'best']);
+      const r = relapseState(n, settings, best ?? n);
+      if (r.best == null) r.best = n;
+      // The real thing if you'd get it now; otherwise an example, labelled as a preview.
+      if (r.nudge) showNudge(n, r, true); else showNudge(r.best + 17, r, true);
       reply(true);
     })();
     return true;

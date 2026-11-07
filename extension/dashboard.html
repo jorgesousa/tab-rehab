@@ -17,6 +17,7 @@
     <a data-view="wins" href="#wins">Quick wins <span class="count warn" id="c-wins"></span></a>
     <a data-view="parked" href="#parked">Parked &amp; snoozed <span class="count" id="c-parked"></span></a>
     <a data-view="todos" href="#todos">To-dos <span class="count" id="c-todos"></span></a>
+    <a data-view="closed" href="#closed">Recently closed <span class="count" id="c-closed"></span></a>
   </nav>
   <a class="health" id="health" href="#recovery" title="Your recovery: progress, and how many tabs you ever needed back"></a>
   <div class="side-foot">
@@ -107,7 +108,7 @@
   </form>
 </dialog>
 
-<div id="toast" class="toast" hidden><span id="toast-msg"></span><button id="toast-btn" class="link"></button></div>
+<div id="toast" class="toast" hidden><span id="toast-msg"></span><a id="toast-link" class="toast-link" hidden></a><button id="toast-btn" class="link"></button></div>
 <script src="dashboard.js"></script>
 </body>
 </html>

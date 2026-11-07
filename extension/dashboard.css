@@ -190,3 +190,5 @@ dialog input, dialog textarea, dialog select { color: var(--text); }
 nav a.cta-2 { justify-content: center; gap: 8px; font-weight: 600; color: var(--brand); border: 1.5px solid color-mix(in srgb, var(--brand) 35%, transparent); background: var(--panel); }
 nav a.cta-2:hover { background: var(--brand-soft); border-color: var(--brand); }
 nav a.cta-2.on { background: var(--brand-soft); border-color: var(--brand); }
+.toast-link { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; margin-left: 4px; }
+.srow .meta a { color: var(--brand); }
