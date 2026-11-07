@@ -106,11 +106,11 @@ function toast(msg, btnLabel, fn) {
 async function load() {
   const [tabs, st] = await Promise.all([
     chrome.tabs.query({}),
-    chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'closedLog', 'settings', 'stats', 'recovery'])
+    chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'closedLog', 'settings', 'stats', 'recovery', 'whatsNew'])
   ]);
   S.tabs = tabs.filter(t => !(t.url || t.pendingUrl || '').startsWith(SELF));
   S.sessions = st.sessions || []; S.todos = st.todos || []; S.snoozed = st.snoozed || [];
-  S.closedLog = st.closedLog || []; S.stats = st.stats || {}; S.recovery = st.recovery || {};
+  S.closedLog = st.closedLog || []; S.stats = st.stats || {}; S.recovery = st.recovery || {}; S.whatsNew = st.whatsNew || null;
   S.settings = { staleDays: 7, nudge: true, budget: 30, ...(st.settings || {}) };
   const ids = new Set(S.tabs.map(t => t.id));
   for (const id of S.sel) if (!ids.has(id)) S.sel.delete(id);
@@ -585,6 +585,22 @@ function renderRecovery() {
   return [tb, `<div class="recovery">${q1}${q2}</div>`];
 }
 
+// ---------- What's new (shown once after an update, never as a pop-up) ----------
+const WHATS_NEW = {
+  '0.3.0': { title: 'New: Recovery', text: 'See how far you\'ve come, and how many of the tabs you let go you ever needed back. (Spoiler: almost none.)', view: 'recovery', cta: 'Open Recovery' }
+};
+function renderWhatsNew() {
+  const el = $('#whatsnew'), w = S.whatsNew, note = w && WHATS_NEW[w.version];
+  el.hidden = !note;
+  if (!note) return;
+  el.innerHTML = `<span class="wn-tag">Updated to ${esc(w.version)}</span><div class="wn-body"><b>${esc(note.title)}</b> ${esc(note.text)}</div>
+    ${note.view ? `<a class="wn-cta" href="#${note.view}" data-wn="go">${esc(note.cta)}</a>` : ''}<button class="wn-x" data-wn="x" title="Dismiss" aria-label="Dismiss">✕</button>`;
+}
+$('#whatsnew').addEventListener('click', e => {
+  const b = e.target.closest('[data-wn]'); if (!b) return;
+  S.whatsNew = null; chrome.storage.local.remove('whatsNew'); renderWhatsNew();
+});
+
 function render() {
   const tabs = S.tabs, dup = dupInfo(tabs);
   S.groups.clear();
@@ -598,6 +614,7 @@ function render() {
   $('#c-todos').textContent = S.todos.filter(t => !t.done).length || '';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
   renderHealth();
+  renderWhatsNew();
   const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, rehab: renderRehab, recovery: renderRecovery }[S.view] || renderTabs;
   const [tb, html] = fn(tabs, dup);
   $('#toolbar').innerHTML = tb;

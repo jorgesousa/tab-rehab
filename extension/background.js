@@ -56,7 +56,13 @@ async function setup() {
   notifyOverdue();
   wakeSnoozed();
 }
-chrome.runtime.onInstalled.addListener(setup);
+chrome.runtime.onInstalled.addListener(async details => {
+  // After an update, the dashboard shows one quiet "What's new" banner until it's dismissed.
+  if (details.reason === 'update' && details.previousVersion !== chrome.runtime.getManifest().version) {
+    await chrome.storage.local.set({ whatsNew: { version: chrome.runtime.getManifest().version, from: details.previousVersion } });
+  }
+  setup();
+});
 chrome.runtime.onStartup.addListener(setup);
 
 // ---------- Context menu: quick to-do / quick park ----------
