@@ -192,3 +192,11 @@ nav a.cta-2:hover { background: var(--brand-soft); border-color: var(--brand); }
 nav a.cta-2.on { background: var(--brand-soft); border-color: var(--brand); }
 .toast-link { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; margin-left: 4px; }
 .srow .meta a { color: var(--brand); }
+
+/* Windows roast + per-window tags */
+.roast { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 10px 14px; background: var(--warn-soft); border-radius: var(--radius); }
+.roast-i { font-size: 18px; }
+.roast-t { flex: 1; }
+.wtags { display: flex; gap: 8px; align-items: center; flex: none; }
+.ghead b + .wtags { margin-left: auto; }
+.ghead button.primary { padding: 3px 9px; font-size: 12px; }

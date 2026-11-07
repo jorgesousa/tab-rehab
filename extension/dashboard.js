@@ -192,6 +192,46 @@ async function parkTabs(tabs, name) {
   });
 }
 
+// ---------- windows: move, merge, all undoable ----------
+// The "main" window is the normal (non-incognito) window with the most tabs.
+function windowInfo(tabs) {
+  const by = new Map();
+  for (const t of tabs) { if (!by.has(t.windowId)) by.set(t.windowId, []); by.get(t.windowId).push(t); }
+  const wins = [...by].map(([id, ts]) => ({ id, tabs: ts.sort((a, b) => a.index - b.index), incognito: ts[0].incognito }));
+  const main = wins.filter(w => !w.incognito).sort((a, b) => b.tabs.length - a.tabs.length)[0];
+  return { wins, main, num: new Map(wins.map((w, i) => [w.id, i + 1])) };
+}
+async function moveWindows(fromIds, toId, verb) {
+  const snapshot = [];
+  for (const id of fromIds) {
+    const ts = (await chrome.tabs.query({ windowId: id })).sort((a, b) => a.index - b.index);
+    if (!ts.length) continue;
+    snapshot.push(ts.map(t => ({ id: t.id, pinned: t.pinned })));
+    await chrome.tabs.move(ts.map(t => t.id), { windowId: toId, index: -1 });
+    for (const t of ts) if (t.pinned) await chrome.tabs.update(t.id, { pinned: true }).catch(() => {});
+  }
+  const n = snapshot.reduce((a, w) => a + w.length, 0);
+  if (!n) return;
+  toast(`${verb}: ${n} tab${n > 1 ? 's' : ''} from ${snapshot.length} window${snapshot.length > 1 ? 's' : ''}. Cosier already.`, 'Undo', async () => {
+    // put every window back the way it was
+    for (const w of snapshot) {
+      const alive = [];
+      for (const t of w) if (await chrome.tabs.get(t.id).catch(() => null)) alive.push(t);
+      if (!alive.length) continue;
+      const win = await chrome.windows.create({ tabId: alive[0].id, focused: false });
+      if (alive.length > 1) await chrome.tabs.move(alive.slice(1).map(t => t.id), { windowId: win.id, index: -1 });
+      for (const t of alive) if (t.pinned) await chrome.tabs.update(t.id, { pinned: true }).catch(() => {});
+    }
+  });
+}
+const lonelyWindows = info => info.wins.filter(w => info.main && w.id !== info.main.id && !w.incognito && w.tabs.length <= 2);
+const isForgotten = w => w.tabs.every(t => !t.active && t.lastAccessed && Date.now() - t.lastAccessed > 7 * DAY);
+function windowRoast(n) {
+  if (n >= 7) return `<b>${n} windows.</b> You don't have a browser anymore, you have a neighbourhood.`;
+  if (n >= 4) return `<b>${n} windows.</b> That's not a browser, that's a floor plan.`;
+  return '';
+}
+
 async function addTodosFromTabs(tabs) {
   const { todos = [] } = await chrome.storage.local.get('todos');
   const items = tabs.map(t => ({ id: uid(), kind: 'do', title: t.title || t.url, url: t.url, note: '', createdAt: Date.now(), remindAt: null, done: false }));
@@ -361,14 +401,14 @@ function tabRow(t, dupIds) {
     </div></div>`;
 }
 
-function groupBlock(key, label, tabs, dupIds, icon) {
+function groupBlock(key, label, tabs, dupIds, icon, extra = '') {
   S.groups.set(key, tabs.map(t => t.id));
   const col = S.collapsed.has(key);
   return `<div class="group ${col ? 'collapsed' : ''}" data-key="${esc(key)}">
     <div class="ghead">
       <button class="caret" data-a="toggle">${col ? '▸' : '▾'}</button>
       ${icon ? `<img class="fav" src="${fav(icon)}" alt="">` : ''}
-      <b>${esc(label)}</b><span class="n">${tabs.length} tab${tabs.length > 1 ? 's' : ''}</span>
+      <b>${esc(label)}</b>${extra}<span class="n">${tabs.length} tab${tabs.length > 1 ? 's' : ''}</span>
       <button data-a="gsel">Select</button><button data-a="gbm">Bookmark all</button><button data-a="gpark">Park all</button><button data-a="gclose" class="danger">Close all</button>
     </div>
     <div class="rows">${tabs.map(t => tabRow(t, dupIds)).join('')}</div></div>`;
@@ -392,11 +432,22 @@ function renderTabs(tabs, dup) {
     html = big.map(([h, ts]) => groupBlock('site:' + h, h, ts, dup.ids, ts[0].url)).join('');
     if (singles.length) html += groupBlock('site:*singles', 'One-off sites', singles, dup.ids);
   } else {
-    const wins = [...new Set(shown.map(t => t.windowId))];
-    html = wins.map((w, i) => {
-      const ts = shown.filter(t => t.windowId === w).sort((a, b) => a.index - b.index);
+    const info = windowInfo(tabs), mainNo = info.main && info.num.get(info.main.id);
+    const roast = !S.q && windowRoast(info.wins.length);
+    if (roast) html += `<div class="roast"><span class="roast-i">🏘️</span><span class="roast-t">${roast}</span><button class="primary" data-a="merge-all">Merge into one window</button></div>`;
+    html += info.wins.filter(w => shown.some(t => t.windowId === w.id)).map(w => {
+      const ts = shown.filter(t => t.windowId === w.id);
       const active = ts.find(t => t.active);
-      return groupBlock('win:' + w, `Window ${i + 1}${active ? ' · ' + (active.title || '').slice(0, 40) : ''}`, ts, dup.ids);
+      const hosts = new Map(); ts.forEach(t => { const h = host(t.url); hosts.set(h, (hosts.get(h) || 0) + 1); });
+      const top = [...hosts].sort((a, b) => b[1] - a[1])[0];
+      const name = active && active.title ? active.title.slice(0, 40) : top ? 'mostly ' + top[0] : '';
+      const isMain = info.main && w.id === info.main.id;
+      const tags = [];
+      if (!isMain && !w.incognito && w.tabs.length === 1) tags.push(`<span class="b warn">a whole window for one tab</span><button data-a="win-move" data-w="${w.id}">Move to Window ${mainNo}</button>`);
+      else if (!isMain && !w.incognito && w.tabs.length === 2) tags.push(`<span class="b warn">lonely window</span><button data-a="win-move" data-w="${w.id}">Move to Window ${mainNo}</button>`);
+      if (w.tabs.length > 50) tags.push('<span class="b">doing the heavy lifting</span>');
+      if (isForgotten(w)) tags.push(`<span class="b danger">haven't been here in a week</span><button data-a="gpark">Park this window</button>`);
+      return groupBlock('win:' + w.id, `Window ${info.num.get(w.id)}${name ? ' · ' + name : ''}`, ts, dup.ids, null, tags.length ? `<span class="wtags">${tags.join('')}</span>` : '');
     }).join('');
   }
   return [tb, html];
@@ -417,10 +468,17 @@ function renderWins(tabs, dup) {
   const junk = tabs.filter(t => isJunk(t) && !t.active && !t.pinned).filter(t => match(t.title, t.url));
   const extras = dup.extras.filter(t => match(t.title, t.url));
   const n = junk.length + extras.length;
+  const winfo = windowInfo(tabs), lonely = S.q ? [] : lonelyWindows(winfo);
   const tb = `<h2>Quick wins</h2>${n ? `<button data-a="close-wins" class="primary">Close all ${n} safely</button>` : ''}
     <div class="sub">Tabs you can close with zero risk: duplicates of a tab you already have open, empty new-tab pages, old search results and error pages. Every close can be undone.</div>`;
-  if (!n) return [tb, empty('Nothing to clean', 'No duplicates or junk tabs right now.')];
   let html = '';
+  if (lonely.length) {
+    const lt = lonely.reduce((a, w) => a + w.tabs.length, 0), mainNo = winfo.num.get(winfo.main.id);
+    html += `<h3 class="sec">Lonely windows: ${lonely.length} window${lonely.length > 1 ? 's' : ''} with 1 or 2 tabs</h3>
+      <div class="group"><div class="ghead"><b>Fold ${lonely.length > 1 ? 'them' : 'it'} into your main window (Window ${mainNo})</b><span class="n">${lt} tab${lt > 1 ? 's' : ''}</span><button class="primary" data-a="merge-lonely">Merge ${lonely.length} window${lonely.length > 1 ? 's' : ''}</button></div>
+      <div class="rows">${lonely.map(w => { const t = w.tabs.find(x => x.active) || w.tabs[0]; return `<div class="row"><img class="fav" src="${fav(t.url)}" alt=""><div class="main"><div class="title">Window ${winfo.num.get(w.id)} · ${esc((t.title || t.url).slice(0, 60))}</div><div class="meta">${w.tabs.length === 1 ? '1 tab · a whole window for one tab' : '2 tabs'}</div></div></div>`; }).join('')}</div></div>`;
+  }
+  if (!n && !lonely.length) return [tb, empty('Nothing to clean', 'No duplicates, junk tabs or lonely windows right now.')];
   if (extras.length) html += `<h3 class="sec">Duplicates: ${extras.length} extra copies (the most recent copy is kept)</h3>` + groupBlock('dupes', 'Duplicate copies', extras, dup.ids);
   if (junk.length) html += `<h3 class="sec">Junk tabs</h3>` + groupBlock('junk', 'Empty, search-result and error pages', junk, dup.ids);
   return [tb, html];
@@ -716,6 +774,13 @@ async function onAction(e) {
     case 'gpark': { const ts = gtabs(); const label = groupEl.querySelector('b').textContent; return parkTabs(ts, groupEl.dataset.key.startsWith('site:') && !groupEl.dataset.key.includes('*') ? label : undefined); }
     case 'gclose': { const ts = gtabs(); if (ts.length > 5 && !confirm(`Close ${ts.length} tabs? (You can still undo or restore them from "Recently closed".)`)) return; return closeTabs(ts); }
     case 'groupby': S.groupBy = el.dataset.v; return render();
+    case 'win-move': { const info = windowInfo(S.tabs); return moveWindows([+el.dataset.w], info.main.id, 'Moved'); }
+    case 'merge-all': case 'merge-lonely': {
+      const info = windowInfo(S.tabs);
+      const from = a === 'merge-all' ? info.wins.filter(w => w.id !== info.main.id && !w.incognito).map(w => w.id) : lonelyWindows(info).map(w => w.id);
+      if (a === 'merge-all' && !confirm(`Move all tabs from ${from.length} windows into Window ${info.num.get(info.main.id)}?\n\nYou can undo it for 15 seconds.`)) return;
+      return moveWindows(from, info.main.id, 'Merged');
+    }
     case 'collapse-all': [...S.groups.keys()].forEach(k => S.collapsed.add(k)); return render();
     case 'expand-all': S.collapsed.clear(); return render();
     case 'sel-all': S.tabs.filter(t => match(t.title, t.url)).forEach(t => S.sel.add(t.id)); return render();
