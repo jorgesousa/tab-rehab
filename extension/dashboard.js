@@ -364,8 +364,8 @@ $('#bm-dlg').addEventListener('close', async () => {
   if (f.closeAfter.checked) {
     if (bmCtx.session) await save({ sessions: S.sessions.filter(s => s.id !== bmCtx.session.id) });
     else {
-      await chrome.tabs.remove(bmCtx.tabs.map(t => t.id)).catch(() => {});
-      await track('bookmarked', bmCtx.tabs.length);
+      const real = bmCtx.tabs.filter(t => t.id > 0);
+      if (real.length) { await chrome.tabs.remove(real.map(t => t.id)).catch(() => {}); await track('bookmarked', real.length); }
       bmCtx.tabs.forEach(t => S.sel.delete(t.id));
       if (S.view === 'rehab') S.rehabDone += bmCtx.tabs.length;
     }
@@ -701,7 +701,29 @@ function renderRecovery() {
     : `<div class="rbig">Nothing let go yet.</div><div class="muted">Close, park, snooze or bookmark a few tabs. This card will show how many you ever needed back. (Spoiler: almost none.)</div>`}
   </div>`;
   const tb = `<h2>Recovery</h2><div class="sub">Your recovery journal. Counted on this device only, never sent anywhere. What happens in rehab stays in rehab.</div>`;
-  return [tb, `<div class="recovery">${q1}${q2}</div>`];
+  // Q3: did I do the things I kept tabs open for?
+  const todos = S.todos, done = todos.filter(x => x.done).length;
+  const overdue = todos.filter(x => !x.done && x.remindAt && x.remindAt < Date.now()).length, open = todos.length - done;
+  const q3 = `<div class="rcard"><div class="rq">Did I do the things I kept tabs open for?</div>
+    ${todos.length ? `<div class="rbig">${todos.length} tab${todos.length !== 1 ? 's' : ''} became to-dos. ${done} done${overdue ? `, ${overdue} overdue` : ''}.</div>
+    <div class="muted">${done && done >= open ? "Promises kept. Turns out you didn't need 40 open tabs to remember things. You needed a list." : open ? `${open} still open. You'll ignore them just like the tabs, but at least they don't eat your RAM.` : ''}</div>
+    ${overdue ? `<div class="ract"><a class="btn" href="#todos">Review ${overdue} overdue to-do${overdue > 1 ? 's' : ''}</a></div>` : ''}`
+    : `<div class="rbig">No to-dos yet.</div><div class="muted">Somewhere a tab is open "so I don't forget". Spoiler: you forgot. Turn it into a to-do (T in a Rehab session) and this card keeps score.</div>`}
+  </div>`;
+  // Q5: what's still hiding? The graveyard check.
+  const oldCut = Date.now() - 30 * DAY;
+  const parkedAll = S.sessions.flatMap(se => se.tabs.map(x => ({ ...x, at: x.parkedAt || se.createdAt })));
+  const old = parkedAll.filter(x => x.at < oldCut);
+  const parkedEver = t.parked || 0, reopened = t.restored || 0;
+  const rate = parkedEver ? Math.round((reopened / parkedEver) * 100) : 0;
+  const q5 = `<div class="rcard"><div class="rq">What's still hiding?</div>
+    ${old.length ? `<div class="rbig">${old.length} parked tab${old.length !== 1 ? 's are' : ' is'} older than 30 days.</div>
+    <div class="muted">${parkedEver ? `You've reopened ${rate}% of everything you ever parked. The rest are just paying rent. ` : ''}A parked list nobody visits is a graveyard with better branding.</div>
+    <div class="ract"><button class="primary" data-a="grave-go">Let them go</button><button data-a="grave-bm">Save as bookmarks first</button></div>`
+    : `<div class="rbig">No graveyard. ${parkedAll.length ? `All ${parkedAll.length} parked tab${parkedAll.length !== 1 ? 's are' : ' is'} under a month old. Suspiciously well-behaved.` : 'Nothing parked, nothing buried.'}</div>
+    <div class="muted">${parkedEver ? `You've reopened ${rate}% of everything you ever parked.` : 'Parked tabs that sit for more than 30 days get dug up here.'}</div>`}
+  </div>`;
+  return [tb, `<div class="recovery">${q1}${q2}${q3}${q5}</div>`];
 }
 
 // ---------- What's new (shown once after an update, never as a pop-up) ----------
@@ -819,6 +841,8 @@ async function onAction(e) {
     case 'sbm': return openBmDlg({ session, folder: session.name });
     case 'clear-closed': return save({ closedLog: [] });
     case 'staledays': case 'budget': case 'nudge': return;
+    case 'grave-bm': { const cut = Date.now() - 30 * DAY; const tabs = S.sessions.flatMap(se => se.tabs.filter(x => (x.parkedAt || se.createdAt) < cut)); return openBmDlg({ tabs: tabs.map(x => ({ ...x, id: -1 })), folder: 'Parked graveyard ' + new Date().toLocaleDateString() }); }
+    case 'grave-go': return letGraveyardGo();
     case 'do-export': return $('#export').click();
     case 'do-import': return $('#import').click();
     case 'al-pause': { const d = +el.dataset.days; await saveAlerts({ pausedUntil: Date.now() + d * DAY }); return toast(d > 1 ? 'Nudges paused for a week. Rest well.' : 'Nudges paused until tomorrow.'); }
@@ -834,6 +858,26 @@ async function onAction(e) {
     case 'tdel': return save({ todos: S.todos.filter(t => t.id !== todo.id) });
   }
 }
+// Graveyard: parked tabs older than 30 days move to Recently closed (still restorable), never straight to nothing.
+async function letGraveyardGo() {
+  const cut = Date.now() - 30 * DAY;
+  const { sessions = [], closedLog = [] } = await chrome.storage.local.get(['sessions', 'closedLog']);
+  const gone = [];
+  const kept = sessions.map(se => {
+    const keep = se.tabs.filter(x => { const old = (x.parkedAt || se.createdAt) < cut; if (old) gone.push(x); return !old; });
+    return { ...se, tabs: keep };
+  }).filter(se => se.tabs.length);
+  if (!gone.length) return;
+  if (!confirm(`Let go of ${gone.length} parked tab${gone.length > 1 ? 's' : ''} older than 30 days?\n\nThey move to Recently closed, so you can still reopen any of them.`)) return;
+  const entries = gone.map(x => ({ title: x.title, url: x.url, closedAt: Date.now(), windowId: x.windowId, index: x.index, boot: x.boot }));
+  await save({ sessions: kept, closedLog: [...entries, ...closedLog].slice(0, 1000) });
+  await track('closed', gone.length);
+  toast(`Let go of ${gone.length} tab${gone.length > 1 ? 's' : ''}. Rest in peace.`, 'Undo', async () => {
+    await save({ sessions, closedLog });
+    await track('undone', gone.length);
+  }, { label: 'Recently closed', view: 'closed' });
+}
+
 // Rehab parks go into one list per day instead of many tiny lists
 async function mergeRehabSessions() {
   const { sessions = [] } = await chrome.storage.local.get('sessions');
