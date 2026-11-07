@@ -573,7 +573,8 @@ function renderRecovery() {
   const letGo = LET_GO.reduce((a, k) => a + (t[k] || 0), 0);
   const back = (t.restored || 0) + (t.undone || 0);
   const pct = letGo ? Math.round((back / letGo) * 1000) / 10 : 0;
-  const parts = LET_GO.filter(k => t[k]).map(k => `${t[k]} ${k}`).join(' · ');
+  const LABEL = { closed: 'closed', parked: 'parked', snoozed: 'snoozed', todo: 'turned into to-dos', bookmarked: 'bookmarked' };
+  const parts = LET_GO.filter(k => t[k]).map(k => `${t[k]} ${LABEL[k]}`).join(' · ');
   const q2 = `<div class="rcard"><div class="rq">Was it safe to let go?</div>
     ${letGo ? `<div class="rbig">You've let go of ${letGo} tab${letGo !== 1 ? 's' : ''}. You needed ${back} back.</div>
     <div class="muted">${parts}. That's ${pct}% you ever reopened${back <= letGo * 0.05 ? ': the fear of losing them was louder than the need.' : '.'}</div>
