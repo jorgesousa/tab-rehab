@@ -27,27 +27,37 @@ People hoard tabs out of **fear of loss** and because **tabs act as a hidden to-
 - **Safety:** confirmation before parking more than 10 tabs; Undo stays on screen for 15 seconds.
 - **Restore to original windows:** parked, snoozed and closed tabs remember their window and position. If that window is gone or Chrome has restarted, they open together in a new window.
 
+**v0.3** (submitted to the Chrome Web Store on 7 Nov 2026, in review):
+- **Recovery view:** "Am I getting better?" (where you started vs today, streak of days under budget, 60-day chart) and "Was it safe to let go?" (tabs let go vs needed back). Daily counters live in the background worker, local only.
+- **Tab budget:** the badge is green at or under your budget, amber above it, red at twice or more.
+- Store listing, privacy policy page, screenshots and promo tiles (`store/`).
+
+**v0.4** (built, ships after v0.3 is approved):
+- **Relapse alerts** against **your best** (the lowest 14-day median of your daily lows, which only ever goes down), never against your "usual", so hoarding never becomes the new normal. Fires only when climbing past max(best + 15, budget + 1), at most once a day plus one "Later today" retry. Quiet hours, all-weekend quiet, pause, preview.
+- **Recovery cards 3 and 5:** "Did I do the things I kept tabs open for?" (to-dos done and overdue) and "What's still hiding?" (parked graveyard older than 30 days: Let them go, or Save as bookmarks first).
+- **Hall of Shame** at the top of Stale: the 5 longest-ignored tabs, ranked, each with a roast by category (courses, shopping, travel, video, docs, articles). Read it, Park or Let it go; dethroning #1 gets a toast.
+- **Window roast:** a banner from 4 windows ("floor plan") and 7 ("neighbourhood") with "Merge into one window", per-window tags (lonely window, forgotten for a week), and a Lonely windows section in Quick wins. All undoable.
+- **Recently closed** as its own view, grouped by day.
+- **Tab-strip right-click menu:** Park, Turn into to-dos, Snooze until tomorrow 9:00, for one tab or every highlighted tab (Chrome 150+).
+- **Settings view** (relapse alerts, tidying, export and import), Recovery reached from the health card in the sidebar, "What's new" banner after updates, sticky header shadow.
+
 ## Known limits
 
 - **One Chrome profile at a time.** Chrome isolates profiles, so an extension in the "Work" profile can't see personal-profile windows. Today: install it in each profile (each keeps its own data). Incognito windows need "Allow in Incognito".
 
 ## Next
 
-1. **Relapse alerts / anti-accumulation dynamics.** A gentle reminder when you pass a tab threshold you choose (e.g. 40): "You're collecting again. Quick Rehab session?" Related ideas:
-   - Tab budget per window (soft limit: the badge changes colour and the nudge appears once, not every tab).
-   - "One in, one out" mode: above the budget, opening a tab suggests parking the oldest one.
-   - Trend nudge: "+25 tabs since Monday", using the daily health stats already stored.
-   - End-of-day check-in: "You opened 38 tabs today; 20 are still open. Review?"
-   - Streaks and weekly recap: days under budget, tabs closed or finished this week.
-   - Quiet hours and a snooze for the nudges themselves, so it never nags.
-2. **Page preview in the Rehab card.** Chrome can only capture the visible tab, so Tab Rehab would save a small thumbnail each time you view a tab and show "how it looked last time you saw it". Tabs not viewed since install fall back to the site's preview image (og:image) or favicon. Needs the broader "read page content" permission; thumbnails stay local and are capped and pruned.
-3. **One view across all Chrome profiles.** Not possible with the extension alone. Best route: a small companion desktop app ("bridge") that each profile's extension talks to via Chrome native messaging. The app merges all profiles into one view (labelled Work / Personal) and sends actions back to the right profile. Data stays on the laptop. Alternative (read-only, not live): read Chrome's session files on disk.
-4. **Auto-backup:** weekly export to Downloads, plus optional sync via chrome.storage.sync or Google Drive.
-5. **Recovery (personal analytics)**, below.
+1. **Page preview in the Rehab card.** Chrome can only capture the visible tab, so Tab Rehab would save a small thumbnail each time you view a tab and show "how it looked last time you saw it". Tabs not viewed since install fall back to the site's preview image (og:image) or favicon. Needs the broader "read page content" permission; thumbnails stay local and are capped and pruned.
+2. **One view across all Chrome profiles.** Not possible with the extension alone. Best route: a small companion desktop app ("bridge") that each profile's extension talks to via Chrome native messaging. The app merges all profiles into one view (labelled Work / Personal) and sends actions back to the right profile. Data stays on the laptop. Alternative (read-only, not live): read Chrome's session files on disk.
+3. **Auto-backup:** weekly export to Downloads, plus optional sync via chrome.storage.sync or Google Drive.
+4. **The rest of Recovery:** question 4 (triggers), milestones, and the weekly check-in (below).
+5. **More anti-accumulation ideas:** trend nudge ("+25 tabs since Monday"), end-of-day check-in, "one in, one out" mode above the budget.
 
 ## Recovery: personal analytics in the rehab spirit
 
 **Decision: user-facing analytics only. No product analytics or telemetry. Nothing is sent anywhere.**
+
+**Status:** questions 1, 2, 3 and 5 are built (1 and 2 in v0.3, 3 and 5 in v0.4). Question 4, milestones and the weekly check-in are still to do.
 
 Not a metrics dashboard but a *recovery journal* that answers the questions a tab hoarder actually has, in the app's voice. Every insight is kind (relapse is normal, no shaming) and ends with **one action**.
 
@@ -67,7 +77,7 @@ First Rehab session, first week under budget, 100 / 1,000 tabs let go, zero zomb
 
 - A **Recovery** view in the dashboard: the five answers as cards, with inline SVG charts and no libraries.
 - A **weekly check-in** (like a sponsor meeting): one notification, opening a 3-card summary.
-- **Adaptive relapse alerts** that use your own baseline ("15 above your usual") instead of a fixed number.
+- **Relapse alerts** (built in v0.4) that use your own best instead of a fixed number. An earlier "your usual" baseline was dropped: with 400 tabs for a week, 400 would have become normal.
 
 ### Data (local only)
 
@@ -80,7 +90,6 @@ Daily aggregate counts (opened, closed, parked, snoozed, to-do, bookmarked, rest
 3. Local AI grouping by task, plus a one-line summary saved at close time (Chrome's built-in on-device model).
 4. Auto-archive mode (Arc-style) as an opt-in.
 5. AI roasts for the Hall of Shame: when Chrome's built-in on-device model (Gemini Nano, Prompt API) is available, write a personal roast for the podium tabs from the title ("Deep work in a shallow world", ignored 29 days → "Ironic, given the title."). Runs on the device, no network, no keys. Falls back silently to the category roasts when the model isn't there (other browsers, low disk, older machines).
-6. Publish to the Chrome Web Store.
 
 ## Pitfalls to avoid
 

@@ -23,18 +23,21 @@ People don't keep hundreds of tabs open because of clutter. They keep them becau
 - **Dashboard** of every tab in every window, grouped by site or by window, with search (`/`).
 - **Rehab session:** your tabs one at a time, oldest first. Decide with one key: `K` keep, `T` to-do, `S` snooze, `B` bookmark, `P` park, `C` close.
 - **Quick wins:** close duplicates, empty tabs, old searches and error pages in one click.
-- **Stale tabs:** tabs you haven't opened in 1–30 days. Park them all at once (pinned and playing tabs are never touched).
+- **Stale tabs:** tabs you haven't opened in 1–30 days. Park them all at once (pinned and playing tabs are never touched). On top: the **Hall of Shame**, your 5 longest-ignored tabs, ranked and roasted.
+- **Recovery:** are you getting better, was it safe to let go, did you do the things you kept tabs open for, and what's still hiding in your parked lists.
+- **Relapse alerts:** one gentle nudge when you start climbing back above your best. Quiet hours, weekends off, pause any time.
+- **Windows:** spot lonely and forgotten windows and merge them into one, with undo.
 - **Park & restore:** save tabs to named lists and restore them later, back in their original windows.
 - **Snooze:** close a tab now and have it reopen tonight, tomorrow, at the weekend or next Monday.
 - **To-dos with reminders**, as Chrome notifications.
 - **Bookmarks:** save a tab, a group or a parked list into a bookmarks folder.
-- **Toolbar badge** with your live tab count: green under 30, amber under 100, red above.
-- **Safety net:** Undo, Recently closed, confirmation before parking more than 10 tabs, and JSON export/import.
-- Right-click any page to park it or save it as a to-do. Open the dashboard with `Alt`+`Shift`+`T`.
+- **Toolbar badge** with your live tab count: green within your tab budget, amber above it, red at twice the budget.
+- **Safety net:** Undo, a Recently closed view, confirmation before parking more than 10 tabs, and JSON export/import.
+- Right-click any page, or any tab in the tab strip, to park it, turn it into a to-do or snooze it. Open the dashboard with `Alt`+`Shift`+`T`.
 
 ## Install
 
-Tab Rehab isn't on the Chrome Web Store yet, so you load it in developer mode:
+Tab Rehab is in review on the Chrome Web Store. Until it's there, load it in developer mode:
 
 1. Download [`tab-rehab.zip`](docs/tab-rehab.zip) (or clone this repo) and unzip it somewhere you'll keep.
 2. Open `chrome://extensions` and switch on **Developer mode** (top right).
@@ -54,8 +57,8 @@ Nothing leaves your laptop. No accounts, no servers, no analytics, no tracking. 
 | `tabs` | See, group, close and reopen your tabs. |
 | `storage`, `unlimitedStorage` | Keep parked lists, to-dos and settings on this laptop. |
 | `alarms` | Wake snoozed tabs and send reminders on time. |
-| `notifications` | To-do reminders and the stale-tab nudge. |
-| `contextMenus` | The right-click "Park this tab" and "Save as a to-do". |
+| `notifications` | To-do reminders, the stale-tab nudge and relapse alerts. |
+| `contextMenus` | The right-click menus on pages and on the tab strip. |
 | `bookmarks` | Save tabs into the bookmarks folder you pick. |
 | `favicon` | Show site icons in your lists. |
 
@@ -69,7 +72,7 @@ ROADMAP.md   research, decisions and what's coming next
 
 ## Coming next
 
-Relapse alerts, a Recovery view, page previews, one view across Chrome profiles, and auto-backup. See [ROADMAP.md](ROADMAP.md).
+Page previews, one view across Chrome profiles, auto-backup, a weekly check-in and AI roasts written on your own laptop. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
