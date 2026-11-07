@@ -17,12 +17,12 @@
     <a data-view="wins" href="#wins">Quick wins <span class="count warn" id="c-wins"></span></a>
     <a data-view="parked" href="#parked">Parked &amp; snoozed <span class="count" id="c-parked"></span></a>
     <a data-view="todos" href="#todos">To-dos <span class="count" id="c-todos"></span></a>
-    <a data-view="recovery" href="#recovery">Recovery</a>
   </nav>
-  <div class="health" id="health"></div>
+  <a class="health" id="health" href="#recovery" title="Your recovery: progress, and how many tabs you ever needed back"></a>
   <div class="side-foot">
-    <button class="link" id="export">Export backup</button>
-    <label class="link">Import backup<input type="file" id="import" accept="application/json" hidden></label>
+    <nav class="nav-foot"><a id="settings-link" class="cta-2" data-view="settings" href="#settings"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</a></nav>
+    <!-- export / import live in Settings → Your data; these are the hidden workers behind those buttons -->
+    <button id="export" hidden></button><input type="file" id="import" accept="application/json" hidden>
   </div>
 </aside>
 

@@ -25,8 +25,11 @@ function scheduleBadge() {
 async function updateBadge() {
   const n = (await chrome.tabs.query({})).length;
   await chrome.action.setBadgeText({ text: n > 999 ? '999+' : String(n) });
-  const color = n < 30 ? '#2e9e5b' : n < 100 ? '#d98a00' : '#d93025';
+  const { settings = {}, stats: st0 = {} } = await chrome.storage.local.get(['settings', 'stats']);
+  const r = relapseLevel(n, settings, st0);
+  const color = r.level === 'ok' ? '#2e9e5b' : r.level === 'over' ? '#d98a00' : '#d93025';
   await chrome.action.setBadgeBackgroundColor({ color });
+  if (r.level === 'relapse') maybeNudge(n, r, settings);
   // daily health snapshot (keeps 60 days)
   const day = new Date().toLocaleDateString('sv'); // YYYY-MM-DD local
   const { stats = {} } = await chrome.storage.local.get('stats');
@@ -39,6 +42,79 @@ async function updateBadge() {
 }
 chrome.tabs.onCreated.addListener(scheduleBadge);
 chrome.tabs.onRemoved.addListener(scheduleBadge);
+
+// ---------- Relapse alerts ----------
+// Gentle by design: measured against your own 2-week median, at most one nudge a day
+// (plus one "Later today" retry), never in quiet hours, and easy to pause.
+const ALERT_DEFAULTS = { enabled: true, adapt: true, quietFrom: '22:00', quietTo: '08:00', weekendQuiet: false, pausedUntil: 0 };
+const alertSettings = settings => ({ ...ALERT_DEFAULTS, ...(settings.alerts || {}) });
+function usualCount(stats) {
+  const today = new Date().toLocaleDateString('sv');
+  const vals = Object.keys(stats).sort().filter(d => d !== today).slice(-14).map(d => stats[d]).sort((a, b) => a - b);
+  if (vals.length < 5) return null; // not enough history yet
+  const m = vals.length >> 1;
+  return vals.length % 2 ? vals[m] : Math.round((vals[m - 1] + vals[m]) / 2);
+}
+function relapseLevel(n, settings, stats) {
+  const budget = settings.budget || 30, a = alertSettings(settings), usual = usualCount(stats);
+  const threshold = a.adapt && usual != null ? Math.max(budget, usual + 15) : budget + 15;
+  return { level: n <= budget ? 'ok' : n < threshold ? 'over' : 'relapse', budget, usual: a.adapt ? usual : null, threshold };
+}
+function isQuiet(a, d = new Date()) {
+  if (a.weekendQuiet && (d.getDay() === 0 || d.getDay() === 6)) return true;
+  const mins = d.getHours() * 60 + d.getMinutes();
+  const [fh, fm] = a.quietFrom.split(':').map(Number), [th, tm] = a.quietTo.split(':').map(Number);
+  const from = fh * 60 + fm, to = th * 60 + tm;
+  return from === to ? false : from < to ? mins >= from && mins < to : mins >= from || mins < to;
+}
+function nudgeText(n, r) {
+  const back = r.usual != null ? `${n} tabs, ${n - r.usual} above your usual.` : `${n} tabs, ${n - r.budget} over your budget of ${r.budget}.`;
+  return { title: "You're collecting again.", message: `${back} A 5-minute Rehab session gets you back under ${r.budget}.` };
+}
+function showNudge(n, r) {
+  const t = nudgeText(n, r);
+  // Same id = Chrome silently updates the old one; clear first so it pops up again.
+  chrome.notifications.clear('relapse', () => chrome.notifications.create('relapse', {
+    type: 'basic', iconUrl: 'icons/icon128.png', title: t.title, message: t.message, priority: 1,
+    buttons: [{ title: 'Start session' }, { title: 'Later today' }]
+  }));
+}
+async function maybeNudge(n, r, settings) {
+  const a = alertSettings(settings);
+  if (!a.enabled || Date.now() < a.pausedUntil || isQuiet(a)) return;
+  const today = new Date().toLocaleDateString('sv');
+  const { relapse = {} } = await chrome.storage.local.get('relapse');
+  const fresh = relapse.day !== today;
+  const retry = !fresh && relapse.laterAt && Date.now() >= relapse.laterAt;
+  if (!fresh && !retry) return;
+  await chrome.storage.local.set({ relapse: { day: today, laterAt: null, retried: !fresh } });
+  showNudge(n, r);
+}
+async function laterToday() {
+  const { relapse = {} } = await chrome.storage.local.get('relapse');
+  if (relapse.retried) return; // "Later today" moves it once, then it waits until tomorrow
+  const laterAt = Date.now() + 3 * 3600e3;
+  await chrome.storage.local.set({ relapse: { ...relapse, laterAt } });
+  chrome.alarms.create('relapse-later', { when: laterAt });
+}
+async function recheckRelapse() {
+  const n = (await chrome.tabs.query({})).length;
+  const { settings = {}, stats = {} } = await chrome.storage.local.get(['settings', 'stats']);
+  const r = relapseLevel(n, settings, stats);
+  if (r.level === 'relapse') maybeNudge(n, r, settings);
+}
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg && msg.type === 'relapse-preview') {
+    (async () => {
+      const n = (await chrome.tabs.query({})).length;
+      const { settings = {}, stats = {} } = await chrome.storage.local.get(['settings', 'stats']);
+      const r = relapseLevel(n, settings, stats);
+      showNudge(Math.max(n, r.threshold), r);
+      reply(true);
+    })();
+    return true;
+  }
+});
 
 // ---------- Install / startup ----------
 async function setup() {
@@ -127,6 +203,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.todos) syncTodoAlarms();
   if (changes.snoozed) syncSnoozeAlarms();
   if (changes.settings) {
+    scheduleBadge();
     const s = changes.settings.newValue || {};
     if (s.nudge === false) chrome.alarms.clear('nudge');
     else chrome.alarms.get('nudge').then(a => { if (!a) chrome.alarms.create('nudge', { delayInMinutes: 60, periodInMinutes: 24 * 60 }); });
@@ -197,6 +274,7 @@ async function wakeSnoozed(id) {
 
 chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name === 'nudge') return nudge();
+  if (alarm.name === 'relapse-later') return recheckRelapse();
   if (alarm.name.startsWith('snooze:')) return wakeSnoozed(alarm.name.slice(7));
   if (alarm.name.startsWith('todo:')) {
     const id = alarm.name.slice(5);
@@ -206,9 +284,15 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   }
 });
 
+chrome.notifications.onButtonClicked.addListener((id, i) => {
+  if (id !== 'relapse') return;
+  chrome.notifications.clear(id);
+  return i === 0 ? openDashboard('#rehab') : laterToday();
+});
 chrome.notifications.onClicked.addListener(async id => {
   chrome.notifications.clear(id);
   if (id === 'nudge') return openDashboard('#stale');
+  if (id === 'relapse') return openDashboard('#rehab');
   if (id.startsWith('todo:')) {
     const { todos = [] } = await chrome.storage.local.get('todos');
     const t = todos.find(x => x.id === id.slice(5));

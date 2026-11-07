@@ -13,7 +13,8 @@
   }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; }
+body { min-height: 100vh; }
 body { display: flex; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; }
 button:hover { border-color: var(--brand); }
@@ -39,15 +40,22 @@ nav a.cta { background: var(--brand); color: #fff; font-weight: 600; margin-bott
 nav a.cta.on { outline: 2px solid var(--brand); outline-offset: 2px; }
 .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .count.warn:not(:empty) { color: var(--warn); }
-.health { background: var(--bg); border-radius: var(--radius); padding: 12px; font-size: 13px; }
+.health { display: block; color: inherit; text-decoration: none; background: var(--bg); border: 2px solid transparent; border-radius: var(--radius); padding: 12px; font-size: 13px; transition: border-color .15s; }
+.health:hover, .health.on { border-color: var(--brand); }
+.health .door { margin-top: 10px; font-weight: 600; color: var(--brand); }
 .health .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .health .trend.down { color: var(--ok); } .health .trend.up { color: var(--danger); }
 .health svg { width: 100%; height: 36px; margin-top: 6px; display: block; }
-.side-foot { margin-top: auto; display: flex; gap: 12px; }
+.side-foot { margin-top: auto; display: flex; gap: 6px; align-items: center; white-space: nowrap; font-size: 13px; }
+.side-foot .dot { color: var(--muted); }
+.side-foot .set { color: var(--brand); font-weight: 600; text-decoration: none; }
+.side-foot .set.on { text-decoration: underline; }
 
 /* Main */
-main { flex: 1; min-width: 0; padding: 18px 28px 100px; }
-.top { position: sticky; top: 0; background: var(--bg); padding-bottom: 12px; z-index: 5; }
+main { flex: 1; min-width: 0; padding: 0 28px 100px; }
+.top { position: sticky; top: 0; background: var(--bg); margin: 0 -28px; padding: 18px 28px 12px; z-index: 5; transition: box-shadow .2s; }
+/* once content scrolls under it, the header gets a soft edge instead of slicing cards in half */
+.top.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 16px -8px rgba(20,16,60,.18); }
 #search { width: 100%; padding: 11px 14px; font-size: 15px; border-radius: var(--radius); box-shadow: var(--shadow); border-color: transparent; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .toolbar h2 { margin: 0 auto 0 0; font-size: 20px; }
@@ -147,3 +155,38 @@ dialog input, dialog textarea, dialog select { color: var(--text); }
 .wn-body { flex: 1; font-size: 14px; color: var(--text); }
 .wn-cta { flex: none; font-size: 14px; font-weight: 600; color: #fff; background: var(--brand); padding: 7px 12px; border-radius: 8px; text-decoration: none; }
 .wn-x { flex: none; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px; }
+
+/* Relapse alerts card */
+.alist { display: grid; gap: 2px; margin: 14px 0 4px; border-top: 1px solid var(--line); }
+.arow { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.arow > span { display: grid; gap: 2px; }
+.arow b { font-size: 14px; }
+.arow .muted { font-size: 13px; }
+.arow input[type=checkbox] { margin-top: 3px; accent-color: var(--brand); width: 16px; height: 16px; }
+.arow input[type=time] { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+.arow.dim { opacity: .5; }
+.alerts .ract { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.alerts .ract .link { margin-left: auto; }
+.recovery a { color: var(--brand); }
+
+/* Settings: same groups and rows as the rest of the dashboard */
+.side-foot .nav-foot { flex: 1; border-top: 1px solid var(--line); padding-top: 10px; }
+.srow { padding: 12px 14px; gap: 16px; cursor: default; }
+.srow .main { cursor: default; }
+.srow .title { font-weight: 600; }
+.srow .meta { white-space: normal; }
+.srow.dim { opacity: .5; }
+.sctl { flex: none; display: flex; align-items: center; gap: 6px; }
+.sctl select, .sctl input[type=time] { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+.ghead button[disabled] { opacity: .45; cursor: default; }
+/* switch */
+.switch { appearance: none; width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; cursor: pointer; transition: background .15s; margin: 0; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.switch:checked { background: var(--brand); }
+.switch:checked::after { transform: translateX(16px); }
+.switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Settings: secondary button, same shape as "Rehab session" */
+.side-foot .nav-foot { border-top: 0; padding-top: 0; }
+nav a.cta-2 { justify-content: center; gap: 8px; font-weight: 600; color: var(--brand); border: 1.5px solid color-mix(in srgb, var(--brand) 35%, transparent); background: var(--panel); }
+nav a.cta-2:hover { background: var(--brand-soft); border-color: var(--brand); }
+nav a.cta-2.on { background: var(--brand-soft); border-color: var(--brand); }

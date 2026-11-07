@@ -112,6 +112,7 @@ async function load() {
   S.sessions = st.sessions || []; S.todos = st.todos || []; S.snoozed = st.snoozed || [];
   S.closedLog = st.closedLog || []; S.stats = st.stats || {}; S.recovery = st.recovery || {}; S.whatsNew = st.whatsNew || null;
   S.settings = { staleDays: 7, nudge: true, budget: 30, ...(st.settings || {}) };
+  S.loaded = true;
   const ids = new Set(S.tabs.map(t => t.id));
   for (const id of S.sel) if (!ids.has(id)) S.sel.delete(id);
   render();
@@ -533,7 +534,64 @@ function renderHealth() {
     const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * w},${h - 3 - ((v - min) / (max - min || 1)) * (h - 6)}`).join(' ');
     spark = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke" opacity=".6"/></svg>`;
   }
-  $('#health').innerHTML = `<div class="big">${n}</div><div class="muted">tabs in ${wins} window${wins !== 1 ? 's' : ''}</div>${trend}${spark}`;
+  $('#health').innerHTML = `<div class="big">${n}</div><div class="muted">tabs in ${wins} window${wins !== 1 ? 's' : ''}</div>${trend}${spark}<div class="door">Your recovery →</div>`;
+  $('#health').classList.toggle('on', S.view === 'recovery');
+}
+
+// ---------- Relapse alert settings (logic lives in background.js) ----------
+const ALERT_DEFAULTS = { enabled: true, adapt: true, quietFrom: '22:00', quietTo: '08:00', weekendQuiet: false, pausedUntil: 0 };
+const alerts = () => ({ ...ALERT_DEFAULTS, ...(S.settings.alerts || {}) });
+function usualCount() {
+  const today = new Date().toLocaleDateString('sv');
+  const vals = Object.keys(S.stats).sort().filter(d => d !== today).slice(-14).map(d => S.stats[d]).sort((a, b) => a - b);
+  if (vals.length < 5) return null;
+  const m = vals.length >> 1;
+  return vals.length % 2 ? vals[m] : Math.round((vals[m - 1] + vals[m]) / 2);
+}
+function settingRow(title, desc, control, dim = false) {
+  return `<label class="row srow ${dim ? 'dim' : ''}"><div class="main"><div class="title">${title}</div><div class="meta">${desc}</div></div><div class="sctl">${control}</div></label>`;
+}
+const toggle = (attr, on) => `<input type="checkbox" class="switch" ${attr} ${on ? 'checked' : ''}>`;
+function alertsSection() {
+  const a = alerts(), usual = usualCount(), budget = S.settings.budget;
+  const paused = Date.now() < a.pausedUntil;
+  const threshold = a.adapt && usual != null ? Math.max(budget, usual + 15) : budget + 15;
+  const status = !a.enabled ? 'Off. Your badge still changes colour.' : paused ? `Paused until ${when(a.pausedUntil)}.` : `On. Next nudge at ${threshold} tabs, at most once a day.`;
+  const off = !a.enabled;
+  return `<h3 class="sec">Relapse alerts</h3>
+    <div class="group"><div class="ghead"><b>${status}</b>
+      ${paused ? '<button data-a="al-resume">Resume</button>' : `<button data-a="al-pause" data-days="1" ${off ? 'disabled' : ''}>Pause 1 day</button><button data-a="al-pause" data-days="7" ${off ? 'disabled' : ''}>Pause 1 week</button>`}
+      <button data-a="al-preview">Preview the nudge</button></div>
+    <div class="rows">
+      ${settingRow('Relapse alerts', "One gentle notification when you're collecting again. Never shaming, never twice a day.", toggle('data-al="enabled"', a.enabled))}
+      ${settingRow('Adapt to my usual', usual != null ? `Nudge when you're 15+ above your 2-week median (yours: ${usual}), not at a fixed number.` : 'Needs 5 days of history. Until then: 15 over your budget.', toggle('data-al="adapt"', a.adapt), off)}
+      ${settingRow('Quiet hours', 'No nudges in this window.', `<input type="time" data-al="quietFrom" value="${a.quietFrom}"> <span class="muted">to</span> <input type="time" data-al="quietTo" value="${a.quietTo}">`, off)}
+      ${settingRow('All weekend', 'Weekends are for recovery too.', toggle('data-al="weekendQuiet"', a.weekendQuiet), off)}
+    </div></div>`;
+}
+async function saveAlerts(patch) {
+  S.settings.alerts = { ...alerts(), ...patch };
+  await save({ settings: S.settings });
+}
+$('#view').addEventListener('change', e => {
+  const k = e.target.dataset.al; if (!k) return;
+  saveAlerts({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+});
+
+function renderSettings() {
+  const st = S.settings;
+  const tb = `<h2>Settings</h2><div class="sub">Everything here stays on this device. What happens in rehab stays in rehab.</div>`;
+  const sel = (a, vals, cur, fmt = v => v) => `<select data-a="${a}">${vals.map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${fmt(v)}</option>`).join('')}</select>`;
+  const tidy = `<h3 class="sec">Tidying</h3><div class="group"><div class="rows">
+    ${settingRow('Tab budget', 'Your badge turns amber above this, and Recovery counts your days under it.', sel('budget', [10, 20, 30, 40, 50, 75, 100], st.budget, v => v + ' tabs'))}
+    ${settingRow('Stale after', "Tabs you haven't opened in this long show up in Stale.", sel('staledays', [1, 3, 7, 14, 30], st.staleDays, d => d + ' day' + (d > 1 ? 's' : '')))}
+    ${settingRow('Daily stale reminder', 'One notification when 5 or more tabs go stale.', toggle('data-a="nudge"', st.nudge !== false))}
+  </div></div>`;
+  const data = `<h3 class="sec">Your data</h3><div class="group"><div class="rows">
+    ${settingRow('Backup', 'Open tabs, parked lists, snoozes, to-dos and your Recovery history, as one JSON file.', '<button data-a="do-export">Export</button>')}
+    ${settingRow('Restore', 'Merges a backup into what you have. It never deletes anything.', '<button data-a="do-import">Import</button>')}
+  </div></div>`;
+  return [tb, alertsSection() + tidy + data];
 }
 
 const LET_GO = ['closed', 'parked', 'snoozed', 'todo', 'bookmarked'];
@@ -541,8 +599,8 @@ function renderRecovery() {
   const n = S.tabs.length, budget = S.settings.budget;
   const days = Object.keys(S.stats).sort();
   const today = new Date().toLocaleDateString('sv');
-  const start = S.recovery.start || (days.length ? { day: days[0], tabs: S.stats[days[0]] } : { day: today, tabs: n });
-  if (!S.recovery.start) { S.recovery.start = start; save({ recovery: S.recovery }); }
+  const start = S.recovery.start || (days.length && days[0] !== today ? { day: days[0], tabs: S.stats[days[0]] } : { day: today, tabs: n });
+  if (!S.recovery.start && S.loaded) { S.recovery.start = start; save({ recovery: S.recovery }); } // only once real data is in
   // streak: consecutive days (ending today) at or under budget
   let streak = 0;
   for (let i = days.length - 1; i >= 0; i--) {
@@ -566,7 +624,7 @@ function renderRecovery() {
     <div class="rbig">You started at ${start.tabs}. Today: ${n}.</div>
     <div class="muted">${diff > 0 ? `${diff} fewer tabs than day one. That's real progress.` : diff < 0 ? `${-diff} more than day one. Relapse happens. It's part of recovery, not the end of it.` : 'Holding steady. One tab at a time.'}</div>
     <div class="rchips"><span class="b ${streak ? 'ok' : ''}">${streak} day${streak !== 1 ? 's' : ''} under budget</span>${best > streak ? `<span class="b">best: ${best} days</span>` : ''}
-      <label class="muted">Budget <select data-a="budget">${[10, 20, 30, 50, 75, 100].map(b => `<option ${b === budget ? 'selected' : ''}>${b}</option>`).join('')}</select> tabs</label></div>
+      <span class="muted">Budget: ${budget} tabs · <a href="#settings">change</a></span></div>
     ${chart}
     <div class="ract"><button class="primary" data-a="rehab">Start a Rehab session</button></div></div>`;
   const t = S.recovery.totals || {};
@@ -587,6 +645,7 @@ function renderRecovery() {
 
 // ---------- What's new (shown once after an update, never as a pop-up) ----------
 const WHATS_NEW = {
+  '0.4.0': { title: 'New: Relapse alerts', text: 'One gentle nudge when you start collecting again, measured against your own usual. Never in quiet hours, easy to pause.', view: 'settings', cta: 'Set them up' },
   '0.3.0': { title: 'New: Recovery', text: 'See how far you\'ve come, and how many of the tabs you let go you ever needed back. (Spoiler: almost none.)', view: 'recovery', cta: 'Open Recovery' }
 };
 function renderWhatsNew() {
@@ -612,10 +671,10 @@ function render() {
   $('#c-wins').textContent = wins || '';
   $('#c-parked').textContent = parked || '';
   $('#c-todos').textContent = S.todos.filter(t => !t.done).length || '';
-  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
+  document.querySelectorAll('#nav a, .nav-foot a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
   renderHealth();
   renderWhatsNew();
-  const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, rehab: renderRehab, recovery: renderRecovery }[S.view] || renderTabs;
+  const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, rehab: renderRehab, recovery: renderRecovery, settings: renderSettings }[S.view] || renderTabs;
   const [tb, html] = fn(tabs, dup);
   $('#toolbar').innerHTML = tb;
   const scroll = window.scrollY;
@@ -690,7 +749,12 @@ async function onAction(e) {
     case 'rename': { const n = prompt('Name this list', session.name); if (n) { session.name = n.trim(); return save({ sessions: S.sessions }); } return; }
     case 'sbm': return openBmDlg({ session, folder: session.name });
     case 'clear-closed': return save({ closedLog: [] });
-    case 'staledays': case 'budget': return;
+    case 'staledays': case 'budget': case 'nudge': return;
+    case 'do-export': return $('#export').click();
+    case 'do-import': return $('#import').click();
+    case 'al-pause': { const d = +el.dataset.days; await saveAlerts({ pausedUntil: Date.now() + d * DAY }); return toast(d > 1 ? 'Nudges paused for a week. Rest well.' : 'Nudges paused until tomorrow.'); }
+    case 'al-resume': return saveAlerts({ pausedUntil: 0 });
+    case 'al-preview': chrome.runtime.sendMessage({ type: 'relapse-preview' }); return toast('Sent. This is the only notification you\'d get that day.');
     case 'lower-stale': S.settings.staleDays = 5; await save({ settings: S.settings }); return toast('Stale limit is now 5 days.');
     // todos
     case 'tfilter': S.todoFilter = el.dataset.v; return render();
@@ -713,7 +777,12 @@ async function mergeRehabSessions() {
 }
 
 $('#view').addEventListener('click', onAction);
-$('#view').addEventListener('change', async e => { if (e.target.dataset.a === 'budget') { S.settings.budget = +e.target.value; await save({ settings: S.settings }); } });
+$('#view').addEventListener('change', async e => {
+  const a = e.target.dataset.a;
+  if (a === 'budget') { S.settings.budget = +e.target.value; await save({ settings: S.settings }); }
+  if (a === 'staledays') { S.settings.staleDays = +e.target.value; await save({ settings: S.settings }); }
+  if (a === 'nudge') { S.settings.nudge = e.target.checked; await save({ settings: S.settings }); }
+});
 $('#toolbar').addEventListener('click', onAction);
 $('#toolbar').addEventListener('change', async e => {
   if (e.target.dataset.a === 'budget') { S.settings.budget = +e.target.value; return save({ settings: S.settings }); }
@@ -738,7 +807,8 @@ $('#search').addEventListener('input', e => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     S.q = e.target.value.trim().toLowerCase();
-    if (S.q && S.view === 'rehab') location.hash = 'tabs';
+    // Search is global: from pages that have nothing to filter, jump to the results in Open tabs.
+    if (S.q && ['rehab', 'recovery', 'settings'].includes(S.view)) location.hash = 'tabs';
     render();
   }, 120);
 });
@@ -758,7 +828,7 @@ document.addEventListener('keydown', e => {
 
 function route() {
   const v = location.hash.slice(1);
-  S.view = ['tabs', 'stale', 'wins', 'parked', 'todos', 'rehab', 'recovery'].includes(v) ? v : 'tabs';
+  S.view = ['tabs', 'stale', 'wins', 'parked', 'todos', 'rehab', 'recovery', 'settings'].includes(v) ? v : 'tabs';
   if (S.view === 'rehab') { S.rehabSkip.clear(); S.rehabDone = 0; S.rehabStart = 0; }
   window.scrollTo(0, 0);
   render();
@@ -766,6 +836,15 @@ function route() {
 window.addEventListener('hashchange', route);
 
 // export / import
+// Recovery history from a backup (e.g. moving from a "Load unpacked" install to the store version).
+// Per day and per counter we keep the larger number, so importing the same backup twice changes nothing.
+function mergeRecovery(a = {}, b = {}) {
+  const maxMerge = (x = {}, y = {}) => { const o = { ...x }; for (const k in y) o[k] = Math.max(o[k] || 0, y[k] || 0); return o; };
+  const daily = { ...(a.daily || {}) };
+  for (const d in (b.daily || {})) daily[d] = maxMerge(daily[d], b.daily[d]);
+  const starts = [a.start, b.start].filter(Boolean).sort((x, y) => x.day.localeCompare(y.day));
+  return { ...a, daily, totals: maxMerge(a.totals, b.totals), ...(starts[0] ? { start: starts[0] } : {}) };
+}
 $('#export').addEventListener('click', async () => {
   const data = await chrome.storage.local.get(null);
   data.openTabs = S.tabs.map(t => ({ title: t.title, url: t.url, windowId: t.windowId }));
@@ -779,17 +858,24 @@ $('#import').addEventListener('change', async e => {
   const file = e.target.files[0]; if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    const cur = await chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'recovery']);
+    if (!data || typeof data !== 'object' || !(data.sessions || data.todos || data.snoozed || data.recovery)) throw new Error('not a backup');
+    const cur = await chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'recovery', 'stats']);
     const mergeById = (a = [], b = []) => [...a, ...b.filter(x => !a.some(y => y.id === x.id))];
     await save({
       sessions: mergeById(cur.sessions, data.sessions),
       todos: mergeById(cur.todos, data.todos),
-      snoozed: mergeById(cur.snoozed, data.snoozed)
+      snoozed: mergeById(cur.snoozed, data.snoozed),
+      recovery: mergeRecovery(cur.recovery, data.recovery),
+      stats: { ...(data.stats || {}), ...(cur.stats || {}) } // days we already have win
     });
     toast('Backup imported and merged.');
   } catch (err) { toast('That file is not a Tab Rehab backup.'); }
   e.target.value = '';
 });
+
+// sticky header shadow
+const onScroll = () => $('.top').classList.toggle('stuck', window.scrollY > 4);
+window.addEventListener('scroll', onScroll, { passive: true });
 
 // live updates
 for (const ev of ['onCreated', 'onRemoved', 'onUpdated', 'onActivated', 'onMoved', 'onAttached', 'onDetached', 'onReplaced']) chrome.tabs[ev].addListener(reload);
