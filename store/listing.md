@@ -66,3 +66,5 @@ Certify all three: not sold to third parties, not used for unrelated purposes, n
 - Store icon 128×128: `store/store-icon-128.png` (96×96 artwork + 16 px transparent padding, per Web Store guidelines)
 - Screenshots 1280×800: `store/screenshot-*.jpg`
 - Small promo tile 440×280: `store/promo-small-440x280.jpg`
+- Marquee promo tile 1400×560: `store/promo-marquee-1400x560.jpg`
+- Promo video: https://www.youtube.com/watch?v=ThlhXO2XpLY
