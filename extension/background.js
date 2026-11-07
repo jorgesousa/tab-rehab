@@ -66,6 +66,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const { todos = [] } = await chrome.storage.local.get('todos');
     todos.unshift({ id: uid(), title: tab.title || tab.url, url: tab.url, note: '', createdAt: Date.now(), remindAt: null, done: false });
     await chrome.storage.local.set({ todos });
+    await track('todo');
     flashBadge('✓');
   }
   if (info.menuItemId === 'tr-park') {
@@ -82,8 +83,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     s.tabs.push({ title: tab.title || tab.url, url: tab.url, parkedAt: Date.now(), windowId: tab.windowId, index: tab.index, boot: bootId });
     await chrome.storage.local.set({ sessions });
     await chrome.tabs.remove(tab.id);
+    await track('parked');
   }
 });
+// Recovery counters (same shape as dashboard.js track): daily aggregates only, no URLs.
+async function track(kind, n = 1) {
+  const day = new Date().toLocaleDateString('sv');
+  const { recovery = {} } = await chrome.storage.local.get('recovery');
+  recovery.daily ||= {}; recovery.totals ||= {};
+  (recovery.daily[day] ||= {})[kind] = (recovery.daily[day][kind] || 0) + n;
+  recovery.totals[kind] = (recovery.totals[kind] || 0) + n;
+  const keys = Object.keys(recovery.daily).sort();
+  while (keys.length > 90) delete recovery.daily[keys.shift()];
+  await chrome.storage.local.set({ recovery });
+}
 async function flashBadge(text) {
   await chrome.action.setBadgeText({ text });
   setTimeout(updateBadge, 1200);

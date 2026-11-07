@@ -7,7 +7,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const S = {
   view: 'tabs', groupBy: 'site', q: '', sel: new Set(), collapsed: new Set(), groups: new Map(),
   tabs: [], sessions: [], todos: [], snoozed: [], closedLog: [], stats: {},
-  settings: { staleDays: 7, nudge: true }, todoFilter: 'open',
+  settings: { staleDays: 7, nudge: true, budget: 30 }, recovery: {}, todoFilter: 'open',
   rehabSkip: new Set(), rehabDone: 0, rehabStart: 0
 };
 
@@ -77,6 +77,18 @@ function dupInfo(tabs) {
 }
 const match = (...fields) => !S.q || fields.join(' ').toLowerCase().includes(S.q);
 const save = obj => chrome.storage.local.set(obj);
+// Recovery counters: daily aggregates only, never URLs. Kept for 90 days, plus all-time totals.
+async function track(kind, n = 1) {
+  if (!n) return;
+  const day = new Date().toLocaleDateString('sv');
+  const { recovery = {} } = await chrome.storage.local.get('recovery');
+  recovery.daily ||= {}; recovery.totals ||= {};
+  (recovery.daily[day] ||= {})[kind] = (recovery.daily[day][kind] || 0) + n;
+  recovery.totals[kind] = (recovery.totals[kind] || 0) + n;
+  const keys = Object.keys(recovery.daily).sort();
+  while (keys.length > 90) delete recovery.daily[keys.shift()];
+  await save({ recovery });
+}
 
 let toastTimer;
 function toast(msg, btnLabel, fn) {
@@ -94,12 +106,12 @@ function toast(msg, btnLabel, fn) {
 async function load() {
   const [tabs, st] = await Promise.all([
     chrome.tabs.query({}),
-    chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'closedLog', 'settings', 'stats'])
+    chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'closedLog', 'settings', 'stats', 'recovery'])
   ]);
   S.tabs = tabs.filter(t => !(t.url || t.pendingUrl || '').startsWith(SELF));
   S.sessions = st.sessions || []; S.todos = st.todos || []; S.snoozed = st.snoozed || [];
-  S.closedLog = st.closedLog || []; S.stats = st.stats || {};
-  S.settings = { staleDays: 7, nudge: true, ...(st.settings || {}) };
+  S.closedLog = st.closedLog || []; S.stats = st.stats || {}; S.recovery = st.recovery || {};
+  S.settings = { staleDays: 7, nudge: true, budget: 30, ...(st.settings || {}) };
   const ids = new Set(S.tabs.map(t => t.id));
   for (const id of S.sel) if (!ids.has(id)) S.sel.delete(id);
   render();
@@ -148,9 +160,10 @@ async function closeTabs(tabs, verb = 'Closed') {
   const { closedLog = [] } = await chrome.storage.local.get('closedLog');
   await save({ closedLog: [...entries, ...closedLog].slice(0, 1000) });
   await chrome.tabs.remove(tabs.map(t => t.id));
+  await track('closed', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
   toast(`${verb} ${tabs.length} tab${tabs.length > 1 ? 's' : ''}. Nothing is lost: see "Recently closed".`, 'Undo', async () => {
-    await restoreItems(entries);
+    await restoreItems(entries); await track('undone', entries.length);
     const { closedLog: cl = [] } = await chrome.storage.local.get('closedLog');
     await save({ closedLog: cl.filter(x => !entries.some(e => e.url === x.url && e.closedAt === x.closedAt)) });
   });
@@ -167,9 +180,10 @@ async function parkTabs(tabs, name) {
   const { sessions = [] } = await chrome.storage.local.get('sessions');
   await save({ sessions: [session, ...sessions] });
   await chrome.tabs.remove(tabs.map(t => t.id));
+  await track('parked', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
   toast(`Parked ${tabs.length} tab${tabs.length > 1 ? 's' : ''} in "${session.name}".`, 'Undo', async () => {
-    await restoreItems(session.tabs);
+    await restoreItems(session.tabs); await track('undone', session.tabs.length);
     const { sessions: ss = [] } = await chrome.storage.local.get('sessions');
     await save({ sessions: ss.filter(s => s.id !== session.id) });
   });
@@ -180,6 +194,7 @@ async function addTodosFromTabs(tabs) {
   const items = tabs.map(t => ({ id: uid(), kind: 'do', title: t.title || t.url, url: t.url, note: '', createdAt: Date.now(), remindAt: null, done: false }));
   await save({ todos: [...items, ...todos] });
   await chrome.tabs.remove(tabs.map(t => t.id));
+  await track('todo', tabs.length);
   tabs.forEach(t => S.sel.delete(t.id));
   toast(`${tabs.length} tab${tabs.length > 1 ? 's are' : ' is'} now to-dos. Add notes and reminders in the To-dos view.`);
 }
@@ -222,6 +237,7 @@ $('#todo-dlg').addEventListener('close', async () => {
     await save({ todos: [{ id: uid(), createdAt: Date.now(), done: false, ...data }, ...todos] });
     if (todoCtx.tab && f.closeTab.checked) {
       await chrome.tabs.remove(todoCtx.tab.id).catch(() => {});
+      await track('todo');
       S.rehabDone += S.view === 'rehab' ? 1 : 0;
     }
     toast(data.remindAt ? `Saved. I'll remind you ${when(data.remindAt)}.` : 'Saved to your to-dos.');
@@ -244,6 +260,7 @@ $('#snooze-dlg').addEventListener('close', async () => {
   const items = await Promise.all(snoozeCtx.map(async t => ({ id: uid(), title: t.title || t.url, url: t.url, wakeAt, snoozedAt: Date.now(), ...(await origin(t)) })));
   await save({ snoozed: [...snoozed, ...items] });
   await chrome.tabs.remove(snoozeCtx.map(t => t.id)).catch(() => {});
+  await track('snoozed', snoozeCtx.length);
   snoozeCtx.forEach(t => S.sel.delete(t.id));
   if (S.view === 'rehab') S.rehabDone += snoozeCtx.length;
   toast(`Snoozed until ${when(wakeAt)}. It will reopen by itself.`);
@@ -305,6 +322,7 @@ $('#bm-dlg').addEventListener('close', async () => {
     if (bmCtx.session) await save({ sessions: S.sessions.filter(s => s.id !== bmCtx.session.id) });
     else {
       await chrome.tabs.remove(bmCtx.tabs.map(t => t.id)).catch(() => {});
+      await track('bookmarked', bmCtx.tabs.length);
       bmCtx.tabs.forEach(t => S.sel.delete(t.id));
       if (S.view === 'rehab') S.rehabDone += bmCtx.tabs.length;
     }
@@ -518,6 +536,54 @@ function renderHealth() {
   $('#health').innerHTML = `<div class="big">${n}</div><div class="muted">tabs in ${wins} window${wins !== 1 ? 's' : ''}</div>${trend}${spark}`;
 }
 
+const LET_GO = ['closed', 'parked', 'snoozed', 'todo', 'bookmarked'];
+function renderRecovery() {
+  const n = S.tabs.length, budget = S.settings.budget;
+  const days = Object.keys(S.stats).sort();
+  const today = new Date().toLocaleDateString('sv');
+  const start = S.recovery.start || (days.length ? { day: days[0], tabs: S.stats[days[0]] } : { day: today, tabs: n });
+  if (!S.recovery.start) { S.recovery.start = start; save({ recovery: S.recovery }); }
+  // streak: consecutive days (ending today) at or under budget
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const v = days[i] === today ? n : S.stats[days[i]];
+    if (v > budget) break; streak++;
+  }
+  let best = 0, run = 0;
+  for (const d of days) { run = S.stats[d] <= budget ? run + 1 : 0; best = Math.max(best, run); }
+  const vals = days.slice(-30).map(d => S.stats[d]);
+  let chart = '';
+  if (vals.length > 1) {
+    const w = 600, h = 120, max = Math.max(...vals, budget) * 1.1;
+    const x = i => (i / (vals.length - 1)) * w, y = v => h - (v / max) * h;
+    chart = `<svg class="rchart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Tab count, last ${vals.length} days">
+      <line x1="0" x2="${w}" y1="${y(budget)}" y2="${y(budget)}" class="budget" vector-effect="non-scaling-stroke"/>
+      <polyline points="${vals.map((v, i) => `${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>
+      <div class="muted small">Last ${vals.length} days · dashed line = your budget of ${budget}</div>`;
+  }
+  const diff = start.tabs - n;
+  const q1 = `<div class="rcard"><div class="rq">Am I getting better?</div>
+    <div class="rbig">You started at ${start.tabs}. Today: ${n}.</div>
+    <div class="muted">${diff > 0 ? `${diff} fewer tabs than day one. That's real progress.` : diff < 0 ? `${-diff} more than day one. Relapse happens. It's part of recovery, not the end of it.` : 'Holding steady. One tab at a time.'}</div>
+    <div class="rchips"><span class="b ${streak ? 'ok' : ''}">${streak} day${streak !== 1 ? 's' : ''} under budget</span>${best > streak ? `<span class="b">best: ${best} days</span>` : ''}
+      <label class="muted">Budget <select data-a="budget">${[10, 20, 30, 50, 75, 100].map(b => `<option ${b === budget ? 'selected' : ''}>${b}</option>`).join('')}</select> tabs</label></div>
+    ${chart}
+    <div class="ract"><button class="primary" data-a="rehab">Start a Rehab session</button></div></div>`;
+  const t = S.recovery.totals || {};
+  const letGo = LET_GO.reduce((a, k) => a + (t[k] || 0), 0);
+  const back = (t.restored || 0) + (t.undone || 0);
+  const pct = letGo ? Math.round((back / letGo) * 1000) / 10 : 0;
+  const parts = LET_GO.filter(k => t[k]).map(k => `${t[k]} ${k}`).join(' · ');
+  const q2 = `<div class="rcard"><div class="rq">Was it safe to let go?</div>
+    ${letGo ? `<div class="rbig">You've let go of ${letGo} tab${letGo !== 1 ? 's' : ''}. You needed ${back} back.</div>
+    <div class="muted">${parts}. That's ${pct}% you ever reopened${back <= letGo * 0.05 ? ': the fear of losing them was louder than the need.' : '.'}</div>
+    ${back <= letGo * 0.05 && letGo >= 20 && S.settings.staleDays > 5 ? `<div class="ract"><button data-a="lower-stale">Lower your stale limit to 5 days?</button></div>` : ''}`
+    : `<div class="rbig">Nothing let go yet.</div><div class="muted">Close, park, snooze or bookmark a few tabs. This card will show how many you ever needed back. (Spoiler: almost none.)</div>`}
+  </div>`;
+  const tb = `<h2>Recovery</h2><div class="sub">Your recovery journal. Counted on this device only, never sent anywhere. What happens in rehab stays in rehab.</div>`;
+  return [tb, `<div class="recovery">${q1}${q2}</div>`];
+}
+
 function render() {
   const tabs = S.tabs, dup = dupInfo(tabs);
   S.groups.clear();
@@ -531,7 +597,7 @@ function render() {
   $('#c-todos').textContent = S.todos.filter(t => !t.done).length || '';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
   renderHealth();
-  const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, rehab: renderRehab }[S.view] || renderTabs;
+  const fn = { tabs: renderTabs, stale: renderStale, wins: renderWins, parked: renderParked, todos: renderTodos, rehab: renderRehab, recovery: renderRecovery }[S.view] || renderTabs;
   const [tb, html] = fn(tabs, dup);
   $('#toolbar').innerHTML = tb;
   const scroll = window.scrollY;
@@ -589,24 +655,25 @@ async function onAction(e) {
       }
       if (row.dataset.ci != null) {
         const c = S.closedLog.filter(x => match(x.title, x.url))[+row.dataset.ci];
-        if (a === 'restore') await restoreItems([c]);
+        if (a === 'restore') { await restoreItems([c]); await track('restored'); }
         return save({ closedLog: S.closedLog.filter(x => x !== c) });
       }
       if (session) {
         const i = +row.dataset.i, t = session.tabs[i];
-        if (a === 'restore') await restoreItems([t]);
+        if (a === 'restore') { await restoreItems([t]); await track('restored'); }
         session.tabs.splice(i, 1);
         return save({ sessions: S.sessions.filter(s => s.tabs.length) });
       }
       return;
     }
     case 'wake': { const row = el.closest('.row'); const s = S.snoozed.find(x => x.id === row.dataset.snz); await chrome.tabs.create({ url: s.url }); return save({ snoozed: S.snoozed.filter(x => x.id !== s.id) }); }
-    case 'srestore': await restoreItems(session.tabs); return save({ sessions: S.sessions.filter(s => s.id !== session.id) });
+    case 'srestore': await restoreItems(session.tabs); await track('restored', session.tabs.length); return save({ sessions: S.sessions.filter(s => s.id !== session.id) });
     case 'sdel': if (!confirm(`Delete "${session.name}" and its ${session.tabs.length} tabs? This can't be undone.`)) return; return save({ sessions: S.sessions.filter(s => s.id !== session.id) });
     case 'rename': { const n = prompt('Name this list', session.name); if (n) { session.name = n.trim(); return save({ sessions: S.sessions }); } return; }
     case 'sbm': return openBmDlg({ session, folder: session.name });
     case 'clear-closed': return save({ closedLog: [] });
-    case 'staledays': return;
+    case 'staledays': case 'budget': return;
+    case 'lower-stale': S.settings.staleDays = 5; await save({ settings: S.settings }); return toast('Stale limit is now 5 days.');
     // todos
     case 'tfilter': S.todoFilter = el.dataset.v; return render();
     case 'new-todo': return openTodoDlg({});
@@ -628,8 +695,10 @@ async function mergeRehabSessions() {
 }
 
 $('#view').addEventListener('click', onAction);
+$('#view').addEventListener('change', async e => { if (e.target.dataset.a === 'budget') { S.settings.budget = +e.target.value; await save({ settings: S.settings }); } });
 $('#toolbar').addEventListener('click', onAction);
 $('#toolbar').addEventListener('change', async e => {
+  if (e.target.dataset.a === 'budget') { S.settings.budget = +e.target.value; return save({ settings: S.settings }); }
   if (e.target.dataset.a === 'staledays') {
     S.settings.staleDays = +e.target.value;
     await save({ settings: S.settings });
@@ -671,7 +740,7 @@ document.addEventListener('keydown', e => {
 
 function route() {
   const v = location.hash.slice(1);
-  S.view = ['tabs', 'stale', 'wins', 'parked', 'todos', 'rehab'].includes(v) ? v : 'tabs';
+  S.view = ['tabs', 'stale', 'wins', 'parked', 'todos', 'rehab', 'recovery'].includes(v) ? v : 'tabs';
   if (S.view === 'rehab') { S.rehabSkip.clear(); S.rehabDone = 0; S.rehabStart = 0; }
   window.scrollTo(0, 0);
   render();
@@ -692,7 +761,7 @@ $('#import').addEventListener('change', async e => {
   const file = e.target.files[0]; if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    const cur = await chrome.storage.local.get(['sessions', 'todos', 'snoozed']);
+    const cur = await chrome.storage.local.get(['sessions', 'todos', 'snoozed', 'recovery']);
     const mergeById = (a = [], b = []) => [...a, ...b.filter(x => !a.some(y => y.id === x.id))];
     await save({
       sessions: mergeById(cur.sessions, data.sessions),
